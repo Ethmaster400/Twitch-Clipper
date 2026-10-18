@@ -1,0 +1,27 @@
+[project]
+name = "claud"
+version = "0.1.0"
+description = "Repost popular Twitch clips from opted-in streamers to YouTube Shorts and TikTok"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "yt-dlp>=2024.1.1",
+    "google-api-python-client>=2.100",
+    "google-auth-oauthlib>=1.1",
+]
+
+[project.optional-dependencies]
+captions = ["faster-whisper>=1.0"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+claud = "claud.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["claud*"]

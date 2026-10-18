@@ -1,0 +1,170 @@
+"""TikTok upload via the Content Posting API (Direct Post).
+
+Until TikTok audits your app, posts are restricted to SELF_ONLY (private) visibility.
+"""
+from __future__ import annotations
+
+import json
+import secrets
+import time
+import urllib.parse
+from pathlib import Path
+
+import requests
+
+from ..config import env
+from ..metadata import PostMeta, tiktok_caption
+
+API = "https://open.tiktokapis.com/v2"
+MB = 1024 * 1024
+
+
+def authorize(token_file: str) -> None:
+    """One-time OAuth: open the URL, approve, then paste the URL you were redirected to."""
+    state = secrets.token_urlsafe(16)
+    params = {
+        "client_key": env("TIKTOK_CLIENT_KEY"),
+        "scope": "user.info.basic,video.publish",
+        "response_type": "code",
+        "redirect_uri": env("TIKTOK_REDIRECT_URI"),
+        "state": state,
+    }
+    print("Open this URL and approve access:\n")
+    print("https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode(params))
+    redirected = input("\nPaste the full redirect URL: ").strip()
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(redirected).query)
+    if query.get("state", [""])[0] != state:
+        raise RuntimeError("OAuth state mismatch; try again")
+    token = _token_request(
+        {
+            "grant_type": "authorization_code",
+            "code": query["code"][0],
+            "redirect_uri": env("TIKTOK_REDIRECT_URI"),
+        }
+    )
+    _save(token_file, token)
+    print(f"Saved TikTok token to {token_file}")
+
+
+def _token_request(fields: dict) -> dict:
+    r = requests.post(
+        f"{API}/oauth/token/",
+        data={"client_key": env("TIKTOK_CLIENT_KEY"), "client_secret": env("TIKTOK_CLIENT_SECRET"), **fields},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    body = r.json()
+    if "access_token" not in body:
+        raise RuntimeError(f"TikTok token error: {body}")
+    body["obtained_at"] = time.time()
+    return body
+
+
+def _save(token_file: str, token: dict) -> None:
+    Path(token_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(token_file).write_text(json.dumps(token, indent=2))
+
+
+def _access_token(token_file: str) -> str:
+    path = Path(token_file)
+    if not path.exists():
+        raise RuntimeError("No TikTok token; run `claud auth tiktok` first")
+    token = json.loads(path.read_text())
+    if time.time() > token["obtained_at"] + token["expires_in"] - 300:
+        token = _token_request({"grant_type": "refresh_token", "refresh_token": token["refresh_token"]})
+        _save(token_file, token)
+    return token["access_token"]
+
+
+def _post(path: str, access_token: str, payload: dict) -> dict:
+    r = requests.post(
+        f"{API}{path}",
+        json=payload,
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json; charset=UTF-8"},
+        timeout=60,
+    )
+    body = r.json()
+    err = body.get("error", {})
+    if r.status_code != 200 or err.get("code") not in (None, "ok"):
+        raise RuntimeError(f"TikTok {path} failed: {err or body}")
+    return body["data"]
+
+
+def chunk_plan(size: int) -> tuple[int, int]:
+    """Return (chunk_size, total_chunk_count) following TikTok's rules:
+    files up to 64MB go as one chunk; otherwise 5-64MB chunks, with the last
+    chunk absorbing the remainder (count = floor(size / chunk_size))."""
+    if size <= 64 * MB:
+        return size, 1
+    chunk = 10 * MB
+    return chunk, size // chunk
+
+
+def upload(video: Path, meta: PostMeta, cfg: dict) -> str:
+    token = _access_token(cfg["token_file"])
+    creator = _post("/post/publish/creator_info/query/", token, {})
+    privacy = cfg.get("privacy", "PUBLIC_TO_EVERYONE")
+    if privacy not in creator.get("privacy_level_options", []):
+        raise RuntimeError(
+            f"TikTok privacy {privacy!r} not allowed for this account/app; "
+            f"allowed: {creator.get('privacy_level_options')} (unaudited apps can only use SELF_ONLY)"
+        )
+
+    size = video.stat().st_size
+    chunk_size, chunks = chunk_plan(size)
+    init = _post(
+        "/post/publish/video/init/",
+        token,
+        {
+            "post_info": {
+                "title": tiktok_caption(meta),
+                "privacy_level": privacy,
+                "disable_duet": False,
+                "disable_comment": False,
+                "disable_stitch": False,
+                "video_cover_timestamp_ms": 1000,
+            },
+            "source_info": {
+                "source": "FILE_UPLOAD",
+                "video_size": size,
+                "chunk_size": chunk_size,
+                "total_chunk_count": chunks,
+            },
+        },
+    )
+    publish_id, upload_url = init["publish_id"], init["upload_url"]
+
+    with video.open("rb") as f:
+        for i in range(chunks):
+            start = i * chunk_size
+            end = size if i == chunks - 1 else start + chunk_size
+            f.seek(start)
+            data = f.read(end - start)
+            r = requests.put(
+                upload_url,
+                data=data,
+                headers={
+                    "Content-Type": "video/mp4",
+                    "Content-Length": str(len(data)),
+                    "Content-Range": f"bytes {start}-{end - 1}/{size}",
+                },
+                timeout=300,
+            )
+            if r.status_code not in (200, 201, 206):
+                raise RuntimeError(f"TikTok chunk {i + 1}/{chunks} upload failed: {r.status_code} {r.text}")
+
+    return _wait_for_publish(token, publish_id)
+
+
+def _wait_for_publish(token: str, publish_id: str, timeout_s: int = 600) -> str:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        status = _post("/post/publish/status/fetch/", token, {"publish_id": publish_id})
+        state = status.get("status")
+        if state == "PUBLISH_COMPLETE":
+            return publish_id
+        if state == "FAILED":
+            raise RuntimeError(f"TikTok publish failed: {status.get('fail_reason')}")
+        time.sleep(5)
+    raise RuntimeError(f"TikTok publish {publish_id} still processing after {timeout_s}s")

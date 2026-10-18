@@ -1,0 +1,46 @@
+# Copy to config.yaml and edit.
+
+# Only streamers who have given you permission to repost their clips.
+# Keep a record of that permission (DM, email, clipping-program terms) in `permission`.
+streamers:
+  - login: examplestreamer
+    permission: "Email from 2026-10-01, clipping program terms v2"
+    extra_hashtags: ["#examplestreamer"]
+
+selection:
+  lookback_hours: 48        # how far back to look for clips
+  min_views: 500            # ignore clips below this view count
+  max_duration_s: 60        # Shorts/TikTok sweet spot; YouTube Shorts allows up to 180s
+  max_posts_per_run: 3      # across all streamers, per `claud run`
+
+render:
+  layout: blur              # blur = blurred background + full frame centered; crop = center crop
+  width: 1080
+  height: 1920
+  captions: true            # requires `pip install .[captions]`
+  whisper_model: small      # tiny / base / small / medium / large-v3
+  words_per_caption: 3
+
+metadata:
+  title_template: "{title} | {streamer}"
+  base_hashtags: ["#twitch", "#shorts", "#gaming"]
+  description_template: |
+    {title}
+    Clipped from {streamer} on Twitch: https://twitch.tv/{streamer}
+    Original clip: {url}
+
+    {hashtags}
+
+platforms:
+  youtube:
+    enabled: true
+    privacy: public           # public / unlisted / private
+    category_id: "20"         # 20 = Gaming
+    client_secrets: secrets/youtube_client_secret.json
+    token_file: secrets/youtube_token.json
+  tiktok:
+    enabled: true
+    privacy: PUBLIC_TO_EVERYONE   # unaudited TikTok apps can only post SELF_ONLY
+    token_file: secrets/tiktok_token.json
+
+data_dir: data
