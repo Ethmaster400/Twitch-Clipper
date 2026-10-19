@@ -46,25 +46,33 @@ Or schedule with cron:
 
 - `streamers[].permission` is **required**. Record how/when each streamer agreed.
 - `selection`: lookback window, minimum views, maximum duration, posts per run.
-- `render.layout`: `blur` (full frame over a blurred background), `crop` (center crop, fills the screen) or `split` (facecam on top, gameplay below, captions on the seam).
-  A streamer can override it with their own `layout`.
+- `render.layout`: `auto` (default: facecam on top when one is found, otherwise fit + blurred background),
+  `blur`, `crop` (center crop, fills the screen) or `split`. A streamer can override it with their own `layout`.
 
-### Facecam split layout
+### Facecam layout
 
-Every streamer's webcam is in a different spot, so set it per streamer as `facecam: [x, y, w, h]`,
-in fractions of the 16:9 frame. To find the numbers, grab a frame from one of their clips:
+With `layout: auto`, every clip is checked for a webcam overlay:
+
+1. 16 frames are sampled across the clip and run through OpenCV's face detector.
+2. A face that stays in the same spot in most frames is a facecam. Faces in gameplay come and go,
+   and a face that fills the frame is a full-screen camera stream, so neither counts.
+3. The overlay's borders are where the picture changes from still (webcam) to moving (gameplay).
+   A side with no visible border, such as a cam in a corner, is extended to the frame edge.
+
+Found → the facecam goes on top, gameplay below, captions on the seam. Not found → the full clip is fitted over a
+blurred copy of itself.
+
+Check what it sees on any clip:
 
 ```bash
-claud snapshot https://clips.twitch.tv/SomeClip frame.png
-# cam is a 480x270 box at the top right of a 1920x1080 frame → 1440/1920, 0, 480/1920, 270/1080
-claud render frame.mp4 test.mp4 --layout split --facecam 0.75,0,0.25,0.25   # preview it
+claud detect https://clips.twitch.tv/SomeClip --preview box.png   # prints the region, draws it on a frame
+claud render clip.mp4 out.mp4                                       # auto layout, as the pipeline would do it
 ```
 
-The gameplay half uses the centre of the full frame by default. Set `gameplay: [x, y, w, h]` to show
-a different area, for example the left side when the cam covers the right. `render.facecam_height` (default 0.35)
-sets how much of the vertical frame the cam gets. A streamer with `layout: split` but no `facecam`
-falls back to `blur`.
-- `metadata`: title, description and hashtag templates (`{title} {streamer} {game} {url} {hashtags}`).
+If detection gets a streamer wrong, pin the region in `config.yaml` as `facecam: [x, y, w, h]` (fractions of
+the frame, the same numbers `claud detect` prints). Set `gameplay: [x, y, w, h]` to choose which part of
+the frame fills the bottom half (default: the centre). `render.facecam_height` (default 0.35) sets how much of the
+video the cam gets. Set `render.detect_facecam: false` to turn detection off.
 
 ## Tests
 

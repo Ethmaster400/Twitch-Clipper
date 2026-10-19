@@ -15,7 +15,7 @@ class Streamer:
     login: str
     permission: str
     extra_hashtags: list[str] = field(default_factory=list)
-    layout: str | None = None          # overrides render.layout for this streamer
+    layout: str | None = None          # overrides render.layout for this streamer (auto/blur/crop/split)
     facecam: Rect | None = None        # where their webcam sits in the 16:9 frame
     gameplay: Rect | None = None       # optional gameplay region for the split layout
 
@@ -52,7 +52,7 @@ def load(path: str | Path = "config.yaml") -> Config:
                 "only add streamers who agreed to have their clips reposted."
             )
         layout = entry.get("layout")
-        if layout and layout not in LAYOUTS:
+        if layout and layout not in LAYOUTS + ("auto",):
             raise ValueError(f"Streamer {entry['login']!r}: unknown layout {layout!r}")
         streamers.append(
             Streamer(

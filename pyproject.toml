@@ -10,11 +10,14 @@ dependencies = [
     "yt-dlp>=2024.1.1",
     "google-api-python-client>=2.100",
     "google-auth-oauthlib>=1.1",
+    "numpy>=1.24",
+    # OpenCV 5 dropped the bundled Haar face detectors used for facecam detection
+    "opencv-python-headless>=4.8,<5",
 ]
 
 [project.optional-dependencies]
 captions = ["faster-whisper>=1.0"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "scikit-image>=0.22"]  # scikit-image: sample face photo for tests
 
 [project.scripts]
 claud = "claud.cli:main"

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import subprocess
 from pathlib import Path
 
@@ -88,9 +89,17 @@ def test_config_and_layout_fallback(tmp_path):
     )
     cfg = config.load(cfg_file)
     cam, nocam = cfg.streamers
+    rcfg = cfg.section("render")
+    detected = render.Rect(0, 0.6, 0.3, 0.4)
     assert cam.facecam == render.Rect(0.75, 0, 0.25, 0.25)
-    assert pipeline.resolve_layout(cfg.section("render"), cam) == "split"
-    assert pipeline.resolve_layout(cfg.section("render"), nocam) == "blur"
+    # A configured facecam wins and detection isn't run.
+    assert pipeline.resolve_layout(rcfg, cam, Path("x.mp4"), detect=lambda _: 1 / 0) == ("split", cam.facecam)
+    # Otherwise detect; nothing found -> blur.
+    assert pipeline.resolve_layout(rcfg, nocam, Path("x.mp4"), detect=lambda _: detected) == ("split", detected)
+    assert pipeline.resolve_layout(rcfg, nocam, Path("x.mp4"), detect=lambda _: None) == ("blur", None)
+    # A detector crash also falls back to blur rather than failing the clip.
+    assert pipeline.resolve_layout(rcfg, nocam, Path("x.mp4"), detect=lambda _: 1 / 0) == ("blur", None)
+    assert pipeline.resolve_layout({"layout": "crop"}, nocam, Path("x.mp4")) == ("crop", None)
 
 
 def make_test_source(path):

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import captions, metadata, render, twitch
 from .config import Config, Streamer, env
+from .render import Rect
 from .db import DB
 from .twitch import Clip
 
@@ -45,13 +46,33 @@ def find_candidates(cfg: Config, tw: twitch.Twitch, db: DB, platforms: list[str]
     return found[: sel.get("max_posts_per_run", 3)]
 
 
-def resolve_layout(rcfg: dict, streamer: Streamer | None) -> str:
-    """Per-streamer layout wins; split falls back to blur if we don't know where the facecam is."""
-    layout = (streamer and streamer.layout) or rcfg.get("layout", "blur")
-    if layout == "split" and not (streamer and streamer.facecam):
-        log.warning("Split layout needs a facecam region for %s; using blur", streamer and streamer.login)
-        return "blur"
-    return layout
+def resolve_layout(rcfg: dict, streamer: Streamer | None, src: Path | None = None,
+                   detect=None) -> tuple[str, Rect | None]:
+    """Pick the layout and facecam region for one clip.
+
+    Per-streamer layout wins over render.layout. For `auto` and `split`, a facecam set in the
+    config is used as-is; otherwise it is detected from the clip. No facecam -> blur (fit + blurred background).
+    """
+    layout = (streamer and streamer.layout) or rcfg.get("layout", "auto")
+    if layout not in ("auto", "split"):
+        return layout, None
+    if streamer and streamer.facecam:
+        return "split", streamer.facecam
+    facecam = None
+    if src is not None and rcfg.get("detect_facecam", True):
+        try:
+            facecam = (detect or detect_facecam)(src)
+        except Exception as e:
+            log.warning("Facecam detection failed for %s: %s", src.name, e)
+    if facecam is None:
+        log.info("No facecam for %s; using blur", streamer.login if streamer else src)
+        return "blur", None
+    return "split", facecam
+
+
+def detect_facecam(src: Path) -> Rect | None:
+    from . import facecam
+    return facecam.detect(src)
 
 
 def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streamer: Streamer | None = None) -> Path:
@@ -61,9 +82,9 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
     if out.exists():
         return out
 
-    layout = resolve_layout(rcfg, streamer)
     facecam_ratio = rcfg.get("facecam_height", 0.35)
     src = twitch.download(clip, raw_dir)
+    layout, facecam = resolve_layout(rcfg, streamer, src)
     subs = None
     if rcfg.get("captions", True):
         words = captions.transcribe(src, rcfg.get("whisper_model", "small"))
@@ -74,7 +95,7 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
             subs = captions.write_ass(chunks, raw_dir / f"{clip.id}.ass", width, height, center_y)
     return render.render_vertical(
         src, out, layout=layout, width=width, height=height, subtitles=subs,
-        facecam=streamer.facecam if streamer else None,
+        facecam=facecam,
         gameplay=streamer.gameplay if streamer else None,
         facecam_ratio=facecam_ratio,
     )

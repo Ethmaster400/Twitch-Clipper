@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> None:
     p_render = sub.add_parser("render", help="Render a local video file to vertical (for testing)")
     p_render.add_argument("src", type=Path)
     p_render.add_argument("dst", type=Path)
-    p_render.add_argument("--layout", default="blur", choices=render.LAYOUTS)
+    p_render.add_argument("--layout", default="auto", choices=("auto",) + render.LAYOUTS)
     p_render.add_argument("--facecam", type=render.Rect.parse, metavar="X,Y,W,H",
                           help="Facecam region as fractions of the frame, e.g. 0.75,0,0.25,0.3")
     p_render.add_argument("--gameplay", type=render.Rect.parse, metavar="X,Y,W,H")
@@ -39,6 +39,10 @@ def main(argv: list[str] | None = None) -> None:
     p_snap.add_argument("dst", type=Path, help="Output image, e.g. frame.png")
     p_snap.add_argument("--at", type=float, default=1.0, help="Timestamp in seconds")
 
+    p_detect = sub.add_parser("detect", help="Auto-detect the facecam in a clip URL or file")
+    p_detect.add_argument("src", help="Twitch clip URL or local video file")
+    p_detect.add_argument("--preview", type=Path, help="Save a frame with the detected box drawn on it")
+
     sub.add_parser("history", help="Show recent posts")
 
     args = parser.parse_args(argv)
@@ -48,29 +52,43 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     if args.cmd == "render":
-        if args.layout == "split" and not args.facecam:
-            parser.error("--layout split needs --facecam X,Y,W,H")
+        layout, facecam = args.layout, args.facecam
+        if layout in ("auto", "split"):
+            from .pipeline import resolve_layout
+            layout, facecam = resolve_layout({}, config.Streamer("cli", "cli", layout=layout, facecam=facecam), args.src)
+            print(f"Layout: {layout}" + (f", facecam {facecam}" if facecam else ""))
         subs = None
         if args.captions:
             words = captions.transcribe(args.src)
-            center_y = args.facecam_height if args.layout == "split" else 0.7
+            center_y = args.facecam_height if layout == "split" else 0.7
             subs = captions.write_ass(
                 captions.group_words(words, 3), args.dst.with_suffix(".ass"), center_y=center_y
             )
         render.render_vertical(
-            args.src, args.dst, layout=args.layout, subtitles=subs,
-            facecam=args.facecam, gameplay=args.gameplay, facecam_ratio=args.facecam_height,
+            args.src, args.dst, layout=layout, subtitles=subs,
+            facecam=facecam, gameplay=args.gameplay, facecam_ratio=args.facecam_height,
         )
         print(f"Wrote {args.dst}")
         return
 
-    if args.cmd == "snapshot":
+    if args.cmd in ("snapshot", "detect"):
         src = Path(args.src)
         if args.src.startswith(("http://", "https://")):
             from .twitch import download_url
-            src = download_url(args.src, args.dst.with_suffix(".mp4"))
-        render.snapshot(src, args.dst, args.at)
-        print(f"Wrote {args.dst}")
+            src = download_url(args.src, Path("data/raw") / (args.src.rstrip("/").rsplit("/", 1)[-1] + ".mp4"))
+        if args.cmd == "snapshot":
+            render.snapshot(src, args.dst, args.at)
+            print(f"Wrote {args.dst}")
+            return
+        from . import facecam
+        rect = facecam.detect(src)
+        if rect is None:
+            print("No facecam found; this clip would use the blur layout.")
+        else:
+            print(f"facecam: [{rect.x}, {rect.y}, {rect.w}, {rect.h}]")
+        if args.preview:
+            facecam.save_preview(src, rect, args.preview)
+            print(f"Wrote {args.preview}")
         return
 
     cfg = config.load(args.config)
