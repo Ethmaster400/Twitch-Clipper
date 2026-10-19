@@ -7,12 +7,17 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from .render import LAYOUTS, Rect
+
 
 @dataclass
 class Streamer:
     login: str
     permission: str
     extra_hashtags: list[str] = field(default_factory=list)
+    layout: str | None = None          # overrides render.layout for this streamer
+    facecam: Rect | None = None        # where their webcam sits in the 16:9 frame
+    gameplay: Rect | None = None       # optional gameplay region for the split layout
 
 
 @dataclass
@@ -46,11 +51,17 @@ def load(path: str | Path = "config.yaml") -> Config:
                 f"Streamer {entry.get('login')!r} has no `permission` recorded; "
                 "only add streamers who agreed to have their clips reposted."
             )
+        layout = entry.get("layout")
+        if layout and layout not in LAYOUTS:
+            raise ValueError(f"Streamer {entry['login']!r}: unknown layout {layout!r}")
         streamers.append(
             Streamer(
                 login=entry["login"].lower(),
                 permission=entry["permission"],
                 extra_hashtags=entry.get("extra_hashtags") or [],
+                layout=layout,
+                facecam=Rect.parse(entry["facecam"]) if entry.get("facecam") else None,
+                gameplay=Rect.parse(entry["gameplay"]) if entry.get("gameplay") else None,
             )
         )
 

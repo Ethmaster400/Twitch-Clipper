@@ -62,7 +62,69 @@ def test_caption_grouping_and_ass(tmp_path):
     assert "Dialogue: 0,0:00:00.00,0:00:00.90,Default,,0,0,0,,NO WAY HE" in text
 
 
-@pytest.mark.parametrize("layout", ["blur", "crop"])
+def test_rect_parse():
+    assert render.Rect.parse("0.75,0,0.25,0.25") == render.Rect(0.75, 0, 0.25, 0.25)
+    assert render.Rect.parse([0, 0.5, 1, 0.5]) == render.Rect(0, 0.5, 1, 0.5)
+    assert render.Rect.parse({"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}).w == 0.2
+    with pytest.raises(ValueError):
+        render.Rect.parse([0.9, 0, 0.25, 0.25])  # spills off the right edge
+
+
+def test_split_heights_even():
+    top, bottom = render.split_heights(1920, 0.35)
+    assert top + bottom == 1920 and top % 2 == 0 and bottom % 2 == 0
+
+
+def test_config_and_layout_fallback(tmp_path):
+    from claud import config, pipeline
+
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        f"data_dir: {tmp_path / 'data'}\n"
+        "render: {layout: split}\n"
+        "streamers:\n"
+        "  - {login: CamGuy, permission: yes, layout: split, facecam: [0.75, 0, 0.25, 0.25]}\n"
+        "  - {login: NoCam, permission: yes}\n"
+    )
+    cfg = config.load(cfg_file)
+    cam, nocam = cfg.streamers
+    assert cam.facecam == render.Rect(0.75, 0, 0.25, 0.25)
+    assert pipeline.resolve_layout(cfg.section("render"), cam) == "split"
+    assert pipeline.resolve_layout(cfg.section("render"), nocam) == "blur"
+
+
+def make_test_source(path):
+    # Gameplay area is red; a green "facecam" box sits in the top-right quarter.
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error",
+         "-f", "lavfi", "-i", "color=c=red:size=1280x720:rate=30:duration=2",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+         "-vf", "drawbox=x=960:y=0:w=320:h=180:color=lime:t=fill",
+         "-shortest", str(path)],
+        check=True,
+    )
+    return path
+
+
+def pixel(video, x, y):
+    raw = subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-ss", "1", "-i", str(video), "-frames:v", "1",
+         "-vf", f"crop=2:2:{x}:{y}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        check=True, capture_output=True).stdout
+    return tuple(raw[:3])
+
+
+def test_split_puts_facecam_on_top(tmp_path):
+    src = make_test_source(tmp_path / "src.mp4")
+    out = render.render_vertical(src, tmp_path / "out.mp4", layout="split",
+                                 facecam=render.Rect(0.75, 0, 0.25, 0.25))
+    r, g, b = pixel(out, 540, 300)    # inside the facecam band
+    assert g > 200 and r < 60
+    r, g, b = pixel(out, 540, 1400)   # inside the gameplay band
+    assert r > 200 and g < 60
+
+
+@pytest.mark.parametrize("layout", ["blur", "crop", "split"])
 def test_render_vertical(tmp_path, layout):
     src = tmp_path / "src.mp4"
     subprocess.run(
@@ -71,7 +133,8 @@ def test_render_vertical(tmp_path, layout):
         check=True,
     )
     subs = captions.write_ass([captions.Word(0, 1.5, "hello world")], tmp_path / "s.ass")
-    out = render.render_vertical(src, tmp_path / "out.mp4", layout=layout, subtitles=subs)
+    facecam = render.Rect(0.75, 0, 0.25, 0.25) if layout == "split" else None
+    out = render.render_vertical(src, tmp_path / "out.mp4", layout=layout, subtitles=subs, facecam=facecam)
     probe = json.loads(subprocess.run(
         ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(out)],
         check=True, capture_output=True, text=True).stdout)

@@ -6,6 +6,12 @@ streamers:
   - login: examplestreamer
     permission: "Email from 2026-10-01, clipping program terms v2"
     extra_hashtags: ["#examplestreamer"]
+    # Facecam split: webcam on top, gameplay below. Regions are fractions of the
+    # 16:9 source frame: x, y, width, height (0-1). Find them with `claud snapshot`.
+    # e.g. a 480x270 cam in the top-right corner of a 1920x1080 stream:
+    layout: split
+    facecam: [0.75, 0.0, 0.25, 0.25]
+    # gameplay: [0.0, 0.0, 0.75, 1.0]   # optional; defaults to the full frame
 
 selection:
   lookback_hours: 48        # how far back to look for clips
@@ -14,7 +20,9 @@ selection:
   max_posts_per_run: 3      # across all streamers, per `claud run`
 
 render:
-  layout: blur              # blur = blurred background + full frame centered; crop = center crop
+  layout: blur              # blur = blurred background + full frame centered; crop = center crop;
+                            # split = facecam on top (needs the streamer's `facecam`; else falls back to blur)
+  facecam_height: 0.35      # split layout: share of the vertical frame given to the facecam
   width: 1080
   height: 1920
   captions: true            # requires `pip install .[captions]`

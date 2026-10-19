@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from . import captions, metadata, render, twitch
-from .config import Config, env
+from .config import Config, Streamer, env
 from .db import DB
 from .twitch import Clip
 
@@ -45,22 +45,38 @@ def find_candidates(cfg: Config, tw: twitch.Twitch, db: DB, platforms: list[str]
     return found[: sel.get("max_posts_per_run", 3)]
 
 
-def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path) -> Path:
+def resolve_layout(rcfg: dict, streamer: Streamer | None) -> str:
+    """Per-streamer layout wins; split falls back to blur if we don't know where the facecam is."""
+    layout = (streamer and streamer.layout) or rcfg.get("layout", "blur")
+    if layout == "split" and not (streamer and streamer.facecam):
+        log.warning("Split layout needs a facecam region for %s; using blur", streamer and streamer.login)
+        return "blur"
+    return layout
+
+
+def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streamer: Streamer | None = None) -> Path:
     rcfg = cfg.section("render")
     width, height = rcfg.get("width", 1080), rcfg.get("height", 1920)
     out = out_dir / f"{clip.id}.mp4"
     if out.exists():
         return out
 
+    layout = resolve_layout(rcfg, streamer)
+    facecam_ratio = rcfg.get("facecam_height", 0.35)
     src = twitch.download(clip, raw_dir)
     subs = None
     if rcfg.get("captions", True):
         words = captions.transcribe(src, rcfg.get("whisper_model", "small"))
         if words:
             chunks = captions.group_words(words, rcfg.get("words_per_caption", 3))
-            subs = captions.write_ass(chunks, raw_dir / f"{clip.id}.ass", width, height)
+            # In the split layout, captions sit on the seam between facecam and gameplay.
+            center_y = facecam_ratio if layout == "split" else 0.7
+            subs = captions.write_ass(chunks, raw_dir / f"{clip.id}.ass", width, height, center_y)
     return render.render_vertical(
-        src, out, layout=rcfg.get("layout", "blur"), width=width, height=height, subtitles=subs
+        src, out, layout=layout, width=width, height=height, subtitles=subs,
+        facecam=streamer.facecam if streamer else None,
+        gameplay=streamer.gameplay if streamer else None,
+        facecam_ratio=facecam_ratio,
     )
 
 
@@ -78,8 +94,9 @@ def run(cfg: Config, *, dry_run: bool = False) -> None:
     for clip, todo in candidates:
         log.info("[%s] %r (%d views) -> %s", clip.streamer, clip.title, clip.views, ", ".join(todo))
         db.upsert_clip(clip)
+        streamer = streamers.get(clip.streamer.lower())
         try:
-            video = prepare_video(cfg, clip, cfg.data_dir / "raw", cfg.data_dir / "out")
+            video = prepare_video(cfg, clip, cfg.data_dir / "raw", cfg.data_dir / "out", streamer)
         except Exception as e:
             log.exception("Preparing %s failed", clip.id)
             for p in todo:
@@ -87,8 +104,7 @@ def run(cfg: Config, *, dry_run: bool = False) -> None:
             continue
         db.set_video_path(clip.id, str(video))
 
-        extra = streamers.get(clip.streamer.lower())
-        meta = metadata.build(clip, cfg.section("metadata"), extra.extra_hashtags if extra else None)
+        meta = metadata.build(clip, cfg.section("metadata"), streamer.extra_hashtags if streamer else None)
         if dry_run:
             log.info("Dry run: rendered %s, title %r", video, meta.title)
             continue

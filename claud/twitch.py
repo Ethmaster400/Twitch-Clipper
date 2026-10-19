@@ -103,10 +103,13 @@ def select_clips(clips: list[Clip], *, min_views: int, max_duration_s: float) ->
 
 def download(clip: Clip, out_dir: Path) -> Path:
     """Download the clip MP4 with yt-dlp (Helix does not expose clip media URLs)."""
+    return download_url(clip.url, out_dir / f"{clip.id}.mp4")
+
+
+def download_url(url: str, target: Path) -> Path:
     import yt_dlp
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / f"{clip.id}.mp4"
+    target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         return target
     opts = {
@@ -116,5 +119,5 @@ def download(clip: Clip, out_dir: Path) -> Path:
         "no_warnings": True,
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([clip.url])
+        ydl.download([url])
     return target

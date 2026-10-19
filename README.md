@@ -46,7 +46,24 @@ Or schedule with cron:
 
 - `streamers[].permission` is **required**. Record how/when each streamer agreed.
 - `selection`: lookback window, minimum views, maximum duration, posts per run.
-- `render.layout`: `blur` (full frame over a blurred background) or `crop` (center crop, fills the screen).
+- `render.layout`: `blur` (full frame over a blurred background), `crop` (center crop, fills the screen) or `split` (facecam on top, gameplay below, captions on the seam).
+  A streamer can override it with their own `layout`.
+
+### Facecam split layout
+
+Every streamer's webcam is in a different spot, so set it per streamer as `facecam: [x, y, w, h]`,
+in fractions of the 16:9 frame. To find the numbers, grab a frame from one of their clips:
+
+```bash
+claud snapshot https://clips.twitch.tv/SomeClip frame.png
+# cam is a 480x270 box at the top right of a 1920x1080 frame → 1440/1920, 0, 480/1920, 270/1080
+claud render frame.mp4 test.mp4 --layout split --facecam 0.75,0,0.25,0.25   # preview it
+```
+
+The gameplay half uses the centre of the full frame by default. Set `gameplay: [x, y, w, h]` to show
+a different area, for example the left side when the cam covers the right. `render.facecam_height` (default 0.35)
+sets how much of the vertical frame the cam gets. A streamer with `layout: split` but no `facecam`
+falls back to `blur`.
 - `metadata`: title, description and hashtag templates (`{title} {streamer} {game} {url} {hashtags}`).
 
 ## Tests

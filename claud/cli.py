@@ -26,8 +26,18 @@ def main(argv: list[str] | None = None) -> None:
     p_render = sub.add_parser("render", help="Render a local video file to vertical (for testing)")
     p_render.add_argument("src", type=Path)
     p_render.add_argument("dst", type=Path)
-    p_render.add_argument("--layout", default="blur", choices=["blur", "crop"])
+    p_render.add_argument("--layout", default="blur", choices=render.LAYOUTS)
+    p_render.add_argument("--facecam", type=render.Rect.parse, metavar="X,Y,W,H",
+                          help="Facecam region as fractions of the frame, e.g. 0.75,0,0.25,0.3")
+    p_render.add_argument("--gameplay", type=render.Rect.parse, metavar="X,Y,W,H")
+    p_render.add_argument("--facecam-height", type=float, default=0.35,
+                          help="Share of the vertical frame given to the facecam")
     p_render.add_argument("--captions", action="store_true")
+
+    p_snap = sub.add_parser("snapshot", help="Save a frame from a clip URL or file, to find the facecam")
+    p_snap.add_argument("src", help="Twitch clip URL or local video file")
+    p_snap.add_argument("dst", type=Path, help="Output image, e.g. frame.png")
+    p_snap.add_argument("--at", type=float, default=1.0, help="Timestamp in seconds")
 
     sub.add_parser("history", help="Show recent posts")
 
@@ -38,11 +48,28 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     if args.cmd == "render":
+        if args.layout == "split" and not args.facecam:
+            parser.error("--layout split needs --facecam X,Y,W,H")
         subs = None
         if args.captions:
             words = captions.transcribe(args.src)
-            subs = captions.write_ass(captions.group_words(words, 3), args.dst.with_suffix(".ass"))
-        render.render_vertical(args.src, args.dst, layout=args.layout, subtitles=subs)
+            center_y = args.facecam_height if args.layout == "split" else 0.7
+            subs = captions.write_ass(
+                captions.group_words(words, 3), args.dst.with_suffix(".ass"), center_y=center_y
+            )
+        render.render_vertical(
+            args.src, args.dst, layout=args.layout, subtitles=subs,
+            facecam=args.facecam, gameplay=args.gameplay, facecam_ratio=args.facecam_height,
+        )
+        print(f"Wrote {args.dst}")
+        return
+
+    if args.cmd == "snapshot":
+        src = Path(args.src)
+        if args.src.startswith(("http://", "https://")):
+            from .twitch import download_url
+            src = download_url(args.src, args.dst.with_suffix(".mp4"))
+        render.snapshot(src, args.dst, args.at)
         print(f"Wrote {args.dst}")
         return
 

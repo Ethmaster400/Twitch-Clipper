@@ -69,12 +69,13 @@ def _escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("{", "(").replace("}", ")").replace("\n", " ")
 
 
-def write_ass(chunks: list[Word], path: Path, width: int = 1080, height: int = 1920) -> Path:
-    lines = [
-        ASS_HEADER.format(
-            width=width, height=height, font_size=int(height * 0.045), margin_v=int(height * 0.28)
-        )
-    ]
+def write_ass(
+    chunks: list[Word], path: Path, width: int = 1080, height: int = 1920, center_y: float = 0.7
+) -> Path:
+    """center_y: vertical position of the caption's middle, as a fraction from the top."""
+    font_size = int(height * 0.045)
+    margin_v = max(0, int(height * (1 - center_y) - font_size / 2))
+    lines = [ASS_HEADER.format(width=width, height=height, font_size=font_size, margin_v=margin_v)]
     for c in chunks:
         lines.append(f"Dialogue: 0,{_ts(c.start)},{_ts(c.end)},Default,,0,0,0,,{_escape(c.text.upper())}\n")
     path.write_text("".join(lines), encoding="utf-8")
