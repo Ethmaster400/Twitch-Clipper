@@ -18,6 +18,28 @@ selection:
   max_duration_s: 60        # Shorts/TikTok sweet spot; YouTube Shorts allows up to 180s
   max_posts_per_run: 3      # across all streamers, per `claud run`
 
+# Which clips go first. Each signal is scaled 0-1 across the candidates, then weighted.
+ranking:
+  weights:
+    velocity: 0.30          # views per hour since the clip was made (catches clips taking off)
+    views: 0.25             # total views
+    recency: 0.15
+    duration: 0.15          # 15-60s scores best
+    title: 0.15             # energetic titles ("insane", "clutch", "no way", ...)
+  recency_half_life_hours: 48
+
+# Skip clips whose titles mention NSFW content, doxxing, swatting or self-harm.
+content_filter:
+  enabled: true
+  extra_terms: []           # add your own, e.g. ["gambling"]
+
+# All-caps hook in a white box at the top for the first few seconds.
+hook:
+  enabled: true
+  use_claude: true          # needs ANTHROPIC_API_KEY; falls back to keyword hooks
+  model: claude-opus-5-5
+  seconds: 3
+
 render:
   layout: auto              # auto  = facecam on top if one is found, else fit + blurred background
                             # blur  = full frame centered over a blurred background
@@ -50,7 +72,8 @@ platforms:
     token_file: secrets/youtube_token.json
   tiktok:
     enabled: true
-    privacy: PUBLIC_TO_EVERYONE   # unaudited TikTok apps can only post SELF_ONLY
+    mode: direct              # direct = post automatically; drafts = send to your TikTok inbox, you tap post
+    privacy: PUBLIC_TO_EVERYONE   # direct mode only; unaudited TikTok apps can only post SELF_ONLY
     token_file: secrets/tiktok_token.json
 
 data_dir: data

@@ -11,8 +11,8 @@ dependencies = [
     "google-api-python-client>=2.100",
     "google-auth-oauthlib>=1.1",
     "numpy>=1.24",
-    # OpenCV 5 dropped the bundled Haar face detectors used for facecam detection
-    "opencv-python-headless>=4.8,<5",
+    "opencv-python-headless>=4.8",   # YuNet face detector for facecam detection
+    "anthropic>=1.0",                # AI hook text
 ]
 
 [project.optional-dependencies]
@@ -28,3 +28,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["claud*"]
+
+[tool.setuptools.package-data]
+claud = ["models/*.onnx"]

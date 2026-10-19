@@ -21,6 +21,7 @@ WrapStyle: 0
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,DejaVu Sans,{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,{margin_v},1
+Style: Hook,DejaVu Sans,{hook_size},&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,14,0,8,90,90,{hook_margin},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -70,12 +71,19 @@ def _escape(text: str) -> str:
 
 
 def write_ass(
-    chunks: list[Word], path: Path, width: int = 1080, height: int = 1920, center_y: float = 0.7
+    chunks: list[Word], path: Path, width: int = 1080, height: int = 1920, center_y: float = 0.7,
+    hook: str | None = None, hook_seconds: float = 3.0, hook_top: float = 0.07,
 ) -> Path:
-    """center_y: vertical position of the caption's middle, as a fraction from the top."""
+    """center_y: vertical position of the caption's middle, as a fraction from the top.
+    hook: optional text shown in a white box for the first `hook_seconds`, its top edge at `hook_top`."""
     font_size = int(height * 0.045)
     margin_v = max(0, int(height * (1 - center_y) - font_size / 2))
-    lines = [ASS_HEADER.format(width=width, height=height, font_size=font_size, margin_v=margin_v)]
+    lines = [ASS_HEADER.format(
+        width=width, height=height, font_size=font_size, margin_v=margin_v,
+        hook_size=int(height * 0.036), hook_margin=int(height * hook_top),
+    )]
+    if hook:
+        lines.append(f"Dialogue: 1,{_ts(0)},{_ts(hook_seconds)},Hook,,0,0,0,,{_escape(hook.upper())}\n")
     for c in chunks:
         lines.append(f"Dialogue: 0,{_ts(c.start)},{_ts(c.end)},Default,,0,0,0,,{_escape(c.text.upper())}\n")
     path.write_text("".join(lines), encoding="utf-8")

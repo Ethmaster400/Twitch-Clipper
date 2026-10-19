@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import captions, metadata, render, twitch
+from . import captions, content_filter, hooks, metadata, ranking, render, twitch
 from .config import Config, Streamer, env
 from .render import Rect
 from .db import DB
@@ -29,7 +29,7 @@ def enabled_platforms(cfg: Config) -> list[str]:
 
 def find_candidates(cfg: Config, tw: twitch.Twitch, db: DB, platforms: list[str]) -> list[tuple[Clip, list[str]]]:
     sel = cfg.section("selection")
-    found = []
+    pool = []
     for streamer in cfg.streamers:
         try:
             clips = tw.top_clips(streamer.login, sel.get("lookback_hours", 48))
@@ -39,10 +39,18 @@ def find_candidates(cfg: Config, tw: twitch.Twitch, db: DB, platforms: list[str]
         for clip in twitch.select_clips(
             clips, min_views=sel.get("min_views", 0), max_duration_s=sel.get("max_duration_s", 60)
         ):
-            todo = [p for p in platforms if db.needs_post(clip.id, p)]
-            if todo:
-                found.append((clip, todo))
-    found.sort(key=lambda item: item[0].views, reverse=True)
+            term = content_filter.blocked_term(clip.title, cfg.section("content_filter"))
+            if term:
+                log.info("Skipping %r: title matches blocked term %r", clip.title, term)
+                continue
+            pool.append(clip)
+
+    found = []
+    for score, clip in ranking.rank(pool, cfg.section("ranking")):
+        todo = [p for p in platforms if db.needs_post(clip.id, p)]
+        if todo:
+            log.debug("Candidate %.3f %s %r", score, clip.streamer, clip.title)
+            found.append((clip, todo))
     return found[: sel.get("max_posts_per_run", 3)]
 
 
@@ -85,14 +93,26 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
     facecam_ratio = rcfg.get("facecam_height", 0.35)
     src = twitch.download(clip, raw_dir)
     layout, facecam = resolve_layout(rcfg, streamer, src)
+    words = captions.transcribe(src, rcfg.get("whisper_model", "small")) if rcfg.get("captions", True) else []
+    chunks = captions.group_words(words, rcfg.get("words_per_caption", 3)) if words else []
+
+    hcfg = cfg.section("hook")
+    hook = None
+    if hcfg.get("enabled", True):
+        hook = hooks.generate(" ".join(w.text for w in words), clip.title, clip.streamer, hcfg)
+        log.info("Hook for %s: %s", clip.id, hook)
+
     subs = None
-    if rcfg.get("captions", True):
-        words = captions.transcribe(src, rcfg.get("whisper_model", "small"))
-        if words:
-            chunks = captions.group_words(words, rcfg.get("words_per_caption", 3))
-            # In the split layout, captions sit on the seam between facecam and gameplay.
-            center_y = facecam_ratio if layout == "split" else 0.7
-            subs = captions.write_ass(chunks, raw_dir / f"{clip.id}.ass", width, height, center_y)
+    if chunks or hook:
+        # In the split layout, captions sit on the seam between facecam and gameplay and the
+        # hook goes just below them, so neither covers the streamer's face. Otherwise the hook
+        # sits at the top, over the blurred background.
+        center_y = facecam_ratio if layout == "split" else 0.7
+        hook_top = facecam_ratio + 0.045 if layout == "split" else 0.07
+        subs = captions.write_ass(
+            chunks, raw_dir / f"{clip.id}.ass", width, height, center_y,
+            hook=hook, hook_seconds=hcfg.get("seconds", 3.0), hook_top=hook_top,
+        )
     return render.render_vertical(
         src, out, layout=layout, width=width, height=height, subtitles=subs,
         facecam=facecam,

@@ -1,10 +1,15 @@
-"""TikTok upload via the Content Posting API (Direct Post).
+"""TikTok upload via the Content Posting API.
 
-Until TikTok audits your app, posts are restricted to SELF_ONLY (private) visibility.
+Two modes (platforms.tiktok.mode):
+- direct (default): Direct Post, published straight to the profile. Until TikTok audits
+  your app, posts are restricted to SELF_ONLY (private) visibility.
+- drafts: uploads to the creator's TikTok inbox; you add the caption and tap post in the app.
+  Works without the audit. Drafts mode adapted from coltonalmeida/twitch-clipper (MIT).
 """
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import time
 import urllib.parse
@@ -18,13 +23,15 @@ from ..metadata import PostMeta, tiktok_caption
 API = "https://open.tiktokapis.com/v2"
 MB = 1024 * 1024
 
+log = logging.getLogger("claud")
+
 
 def authorize(token_file: str) -> None:
     """One-time OAuth: open the URL, approve, then paste the URL you were redirected to."""
     state = secrets.token_urlsafe(16)
     params = {
         "client_key": env("TIKTOK_CLIENT_KEY"),
-        "scope": "user.info.basic,video.publish",
+        "scope": "user.info.basic,video.publish,video.upload",
         "response_type": "code",
         "redirect_uri": env("TIKTOK_REDIRECT_URI"),
         "state": state,
@@ -103,6 +110,33 @@ def chunk_plan(size: int) -> tuple[int, int]:
 
 def upload(video: Path, meta: PostMeta, cfg: dict) -> str:
     token = _access_token(cfg["token_file"])
+    mode = cfg.get("mode", "direct")
+    if mode not in ("direct", "drafts"):
+        raise ValueError(f"Unknown TikTok mode {mode!r} (use 'direct' or 'drafts')")
+
+    size = video.stat().st_size
+    chunk_size, chunks = chunk_plan(size)
+    source_info = {
+        "source": "FILE_UPLOAD",
+        "video_size": size,
+        "chunk_size": chunk_size,
+        "total_chunk_count": chunks,
+    }
+    if mode == "drafts":
+        # Drafts take no caption or privacy; they're set in the app when posting.
+        init = _post("/post/publish/inbox/video/init/", token, {"source_info": source_info})
+        log.info("TikTok draft caption to paste: %s", tiktok_caption(meta))
+    else:
+        init = _post("/post/publish/video/init/", token, {
+            "post_info": _post_info(token, meta, cfg),
+            "source_info": source_info,
+        })
+    publish_id, upload_url = init["publish_id"], init["upload_url"]
+    _put_chunks(video, upload_url, size, chunk_size, chunks)
+    return _wait_for_publish(token, publish_id)
+
+
+def _post_info(token: str, meta: PostMeta, cfg: dict) -> dict:
     creator = _post("/post/publish/creator_info/query/", token, {})
     privacy = cfg.get("privacy", "PUBLIC_TO_EVERYONE")
     if privacy not in creator.get("privacy_level_options", []):
@@ -111,30 +145,17 @@ def upload(video: Path, meta: PostMeta, cfg: dict) -> str:
             f"allowed: {creator.get('privacy_level_options')} (unaudited apps can only use SELF_ONLY)"
         )
 
-    size = video.stat().st_size
-    chunk_size, chunks = chunk_plan(size)
-    init = _post(
-        "/post/publish/video/init/",
-        token,
-        {
-            "post_info": {
-                "title": tiktok_caption(meta),
-                "privacy_level": privacy,
-                "disable_duet": False,
-                "disable_comment": False,
-                "disable_stitch": False,
-                "video_cover_timestamp_ms": 1000,
-            },
-            "source_info": {
-                "source": "FILE_UPLOAD",
-                "video_size": size,
-                "chunk_size": chunk_size,
-                "total_chunk_count": chunks,
-            },
-        },
-    )
-    publish_id, upload_url = init["publish_id"], init["upload_url"]
+    return {
+        "title": tiktok_caption(meta),
+        "privacy_level": privacy,
+        "disable_duet": False,
+        "disable_comment": False,
+        "disable_stitch": False,
+        "video_cover_timestamp_ms": 1000,
+    }
 
+
+def _put_chunks(video: Path, upload_url: str, size: int, chunk_size: int, chunks: int) -> None:
     with video.open("rb") as f:
         for i in range(chunks):
             start = i * chunk_size
@@ -154,15 +175,13 @@ def upload(video: Path, meta: PostMeta, cfg: dict) -> str:
             if r.status_code not in (200, 201, 206):
                 raise RuntimeError(f"TikTok chunk {i + 1}/{chunks} upload failed: {r.status_code} {r.text}")
 
-    return _wait_for_publish(token, publish_id)
-
 
 def _wait_for_publish(token: str, publish_id: str, timeout_s: int = 600) -> str:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         status = _post("/post/publish/status/fetch/", token, {"publish_id": publish_id})
         state = status.get("status")
-        if state == "PUBLISH_COMPLETE":
+        if state in ("PUBLISH_COMPLETE", "SEND_TO_USER_INBOX"):
             return publish_id
         if state == "FAILED":
             raise RuntimeError(f"TikTok publish failed: {status.get('fail_reason')}")

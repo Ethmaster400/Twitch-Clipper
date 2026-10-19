@@ -1,6 +1,6 @@
 """Automatic webcam-overlay detection.
 
-1. Sample frames across the clip and run a face detector on each.
+1. Sample frames across the clip and run the YuNet face detector on each.
 2. A facecam overlay shows the same face in the same place in most frames;
    faces in gameplay come and go. Keep the most persistent face, if any.
 3. Estimate the overlay box around that face, then refine each side by looking
@@ -27,16 +27,20 @@ SNAP_MARGIN = 0.08          # snap a border to the frame edge when this close
 STRIP = 12                  # width in px of the strips compared on each side of a border
 
 
+YUNET_MODEL = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
+FACE_SCORE_THRESHOLD = 0.6
+
+
 def _cv2():
     try:
         import cv2
     except ImportError as e:
-        raise RuntimeError("Facecam detection needs OpenCV: pip install 'opencv-python-headless<5'") from e
+        raise RuntimeError("Facecam detection needs OpenCV: pip install opencv-python-headless") from e
     return cv2
 
 
 def sample_frames(video: Path, n: int = 16) -> list[np.ndarray]:
-    """Grayscale frames spread evenly across the clip, resized to ANALYSIS_WIDTH."""
+    """BGR frames spread evenly across the clip, resized to ANALYSIS_WIDTH."""
     cv2 = _cv2()
     cap = cv2.VideoCapture(str(video))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -47,33 +51,26 @@ def sample_frames(video: Path, n: int = 16) -> list[np.ndarray]:
         if not ok:
             continue
         h, w = frame.shape[:2]
-        frame = cv2.resize(frame, (ANALYSIS_WIDTH, round(h * ANALYSIS_WIDTH / w)), interpolation=cv2.INTER_AREA)
-        frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+        frames.append(cv2.resize(frame, (ANALYSIS_WIDTH, round(h * ANALYSIS_WIDTH / w)), interpolation=cv2.INTER_AREA))
     cap.release()
     return frames
 
 
-_cascades = None
+_detector = None
 
 
-def find_faces(gray: np.ndarray) -> list[tuple[int, int, int, int]]:
-    global _cascades
+def find_faces(frame: np.ndarray) -> list[tuple[int, int, int, int]]:
+    """Face boxes (x, y, w, h) in one BGR frame, using OpenCV's YuNet detector."""
+    global _detector
     cv2 = _cv2()
-    if _cascades is None:
-        _cascades = [
-            cv2.CascadeClassifier(cv2.data.haarcascades + name)
-            for name in ("haarcascade_frontalface_alt2.xml", "haarcascade_profileface.xml")
-        ]
-    width = gray.shape[1]
-    min_size = (max(16, int(width * 0.03)),) * 2
-    faces = []
-    for i, cascade in enumerate(_cascades):
-        for x, y, w, h in cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=min_size):
-            faces.append((int(x), int(y), int(w), int(h)))
-        if i == 1:  # profile cascade only finds faces looking one way; try the mirror too
-            for x, y, w, h in cascade.detectMultiScale(gray[:, ::-1], scaleFactor=1.1, minNeighbors=4, minSize=min_size):
-                faces.append((int(width - x - w), int(y), int(w), int(h)))
-    return faces
+    if _detector is None:
+        _detector = cv2.FaceDetectorYN.create(str(YUNET_MODEL), "", (320, 320), score_threshold=FACE_SCORE_THRESHOLD)
+    height, width = frame.shape[:2]
+    _detector.setInputSize((width, height))
+    _, faces = _detector.detect(frame)
+    if faces is None:
+        return []
+    return [(int(f[0]), int(f[1]), int(f[2]), int(f[3])) for f in faces if f[2] > 0 and f[3] > 0]
 
 
 def persistent_face(faces_per_frame: list[list[tuple]], n_frames: int):
@@ -120,6 +117,7 @@ def _find_step(profile: np.ndarray, lo: int, hi: int, outside_before: bool) -> i
 
 
 def locate(frames: list[np.ndarray], faces_per_frame: list[list[tuple]]) -> Rect | None:
+    """frames: grayscale; faces_per_frame: face boxes found in each of them."""
     if not frames:
         return None
     height, width = frames[0].shape
@@ -200,6 +198,8 @@ def detect(video: Path, samples: int = 16) -> Rect | None:
     frames = sample_frames(video, samples)
     if len(frames) < 3:
         return None
-    rect = locate(frames, [find_faces(f) for f in frames])
+    cv2 = _cv2()
+    faces = [find_faces(f) for f in frames]
+    rect = locate([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames], faces)
     log.info("Facecam detection for %s: %s", video.name, rect or "none found")
     return rect
