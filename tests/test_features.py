@@ -120,10 +120,21 @@ def test_tiktok_auth_sends_pkce(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("TIKTOK_REDIRECT_URI", "https://localhost/callback")
     sent = {}
 
+    answers = []
+
     def fake_input(_prompt):
-        url = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("https://"))
-        sent["auth"] = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
-        return f"https://localhost/callback?code=abc&state={sent['auth']['state']}"
+        if not answers:
+            url = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("https://"))
+            sent["auth"] = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+            answers.extend([
+                "",                                   # Enter pressed before pasting
+                "https://www.tiktok.com/v2/auth/",    # wrong URL: asked again
+                # right URL, broken across lines as when copied from a terminal
+                f"https://localhost/callback?co\nde=abc&state={sent['auth']['state']}",
+            ])
+        return answers.pop(0)
+
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
 
     def fake_token_request(fields):
         sent["token"] = fields

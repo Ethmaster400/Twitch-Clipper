@@ -14,6 +14,7 @@ import logging
 import secrets
 import time
 import urllib.parse
+import webbrowser
 from pathlib import Path
 
 import requests
@@ -47,16 +48,23 @@ def authorize(token_file: str) -> None:
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     }
-    print("Open this URL and approve access:\n")
-    print("https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode(params))
-    redirected = input("\nPaste the full redirect URL: ").strip()
-    query = urllib.parse.parse_qs(urllib.parse.urlparse(redirected).query)
+    url = "https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode(params)
+    print("Approve access in your browser. If it didn't open, copy this URL into it:\n")
+    print(url)
+    webbrowser.open(url)
+    print(f"\nAfter approving, the browser goes to {env('TIKTOK_REDIRECT_URI')}?code=... "
+          "(the page itself shows an error, that's fine).\nCopy that whole address from the address bar.")
+    query: dict = {}
+    while "code" not in query and "error" not in query:
+        # Remove whitespace: long URLs copied from a terminal often pick up line breaks.
+        redirected = "".join(input("\nPaste the address here and press Enter (Ctrl+C to quit): ").split())
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(redirected).query)
+        if redirected and "code" not in query and "error" not in query:
+            print("That's not the address TikTok sent you back to; it should contain 'code='. Try again.")
     if "error" in query:
         raise RuntimeError(f"TikTok login failed: {query.get('error_description', query['error'])[0]}")
     if query.get("state", [""])[0] != state:
-        raise RuntimeError("OAuth state mismatch; run `claud auth tiktok` again and use the new URL")
-    if "code" not in query:
-        raise RuntimeError("No code in that URL; copy the whole address from the browser bar")
+        raise RuntimeError("That address is from an older login attempt; run `claud auth tiktok` again")
     token = _token_request(
         {
             "grant_type": "authorization_code",
