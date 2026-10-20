@@ -8,6 +8,7 @@ Two modes (platforms.tiktok.mode):
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import secrets
@@ -26,27 +27,42 @@ MB = 1024 * 1024
 log = logging.getLogger("claud")
 
 
+def pkce_pair() -> tuple[str, str]:
+    """(code_verifier, code_challenge) for TikTok's PKCE. TikTok's S256 challenge is the
+    hex-encoded SHA-256 of the verifier, not the base64url encoding standard OAuth uses."""
+    verifier = secrets.token_urlsafe(48)  # 64 chars from [A-Za-z0-9_-]
+    return verifier, hashlib.sha256(verifier.encode()).hexdigest()
+
+
 def authorize(token_file: str) -> None:
     """One-time OAuth: open the URL, approve, then paste the URL you were redirected to."""
     state = secrets.token_urlsafe(16)
+    verifier, challenge = pkce_pair()
     params = {
         "client_key": env("TIKTOK_CLIENT_KEY"),
         "scope": "user.info.basic,video.publish,video.upload",
         "response_type": "code",
         "redirect_uri": env("TIKTOK_REDIRECT_URI"),
         "state": state,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
     }
     print("Open this URL and approve access:\n")
     print("https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode(params))
     redirected = input("\nPaste the full redirect URL: ").strip()
     query = urllib.parse.parse_qs(urllib.parse.urlparse(redirected).query)
+    if "error" in query:
+        raise RuntimeError(f"TikTok login failed: {query.get('error_description', query['error'])[0]}")
     if query.get("state", [""])[0] != state:
-        raise RuntimeError("OAuth state mismatch; try again")
+        raise RuntimeError("OAuth state mismatch; run `claud auth tiktok` again and use the new URL")
+    if "code" not in query:
+        raise RuntimeError("No code in that URL; copy the whole address from the browser bar")
     token = _token_request(
         {
             "grant_type": "authorization_code",
             "code": query["code"][0],
             "redirect_uri": env("TIKTOK_REDIRECT_URI"),
+            "code_verifier": verifier,
         }
     )
     _save(token_file, token)

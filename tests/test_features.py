@@ -107,3 +107,34 @@ def test_tiktok_drafts_mode(monkeypatch, tmp_path):
     assert "post_info" not in posted[0][1]
     with pytest.raises(ValueError):
         tiktok.upload(video, meta, {"token_file": "x", "mode": "bogus"})
+
+
+def test_tiktok_auth_sends_pkce(monkeypatch, tmp_path, capsys):
+    import hashlib
+    import urllib.parse
+
+    from claud.uploaders import tiktok
+
+    monkeypatch.setenv("TIKTOK_CLIENT_KEY", "key")
+    monkeypatch.setenv("TIKTOK_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("TIKTOK_REDIRECT_URI", "https://localhost/callback")
+    sent = {}
+
+    def fake_input(_prompt):
+        url = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("https://"))
+        sent["auth"] = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        return f"https://localhost/callback?code=abc&state={sent['auth']['state']}"
+
+    def fake_token_request(fields):
+        sent["token"] = fields
+        return {"access_token": "a", "refresh_token": "r", "expires_in": 86400, "obtained_at": 0}
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr(tiktok, "_token_request", fake_token_request)
+    tiktok.authorize(str(tmp_path / "tok.json"))
+
+    verifier = sent["token"]["code_verifier"]
+    assert sent["auth"]["code_challenge_method"] == "S256"
+    assert sent["auth"]["code_challenge"] == hashlib.sha256(verifier.encode()).hexdigest()
+    assert 43 <= len(verifier) <= 128 and sent["token"]["code"] == "abc"
+    assert (tmp_path / "tok.json").exists()
