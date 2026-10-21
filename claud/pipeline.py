@@ -93,7 +93,10 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
     facecam_ratio = rcfg.get("facecam_height", 0.35)
     src = twitch.download(clip, raw_dir)
     layout, facecam = resolve_layout(rcfg, streamer, src)
-    words = captions.transcribe(src, rcfg.get("whisper_model", "small")) if rcfg.get("captions", True) else []
+    words = (
+        captions.transcribe(src, rcfg.get("whisper_model", "small"), rcfg.get("whisper_device", "auto"))
+        if rcfg.get("captions", True) else []
+    )
     chunks = captions.group_words(words, rcfg.get("words_per_caption", 3)) if words else []
 
     hcfg = cfg.section("hook")

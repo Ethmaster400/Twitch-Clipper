@@ -51,6 +51,7 @@ render:
   height: 1920
   captions: true            # requires `pip install .[captions]`
   whisper_model: small      # tiny / base / small / medium / large-v3
+  whisper_device: auto      # auto = NVIDIA GPU if its CUDA libraries work, else CPU; or cpu / cuda
   words_per_caption: 3
 
 metadata:

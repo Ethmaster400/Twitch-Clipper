@@ -67,6 +67,12 @@ class DB:
         )
         self.conn.commit()
 
+    def reset_failed(self) -> int:
+        """Forget failed attempts so those clips are tried again; returns how many."""
+        count = self.conn.execute("DELETE FROM posts WHERE status = 'failed'").rowcount
+        self.conn.commit()
+        return count
+
     def history(self, limit: int = 20) -> list[sqlite3.Row]:
         return self.conn.execute(
             "SELECT c.streamer, c.title, c.views, p.platform, p.status, p.remote_id, p.error, p.updated_at "

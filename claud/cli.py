@@ -44,6 +44,7 @@ def main(argv: list[str] | None = None) -> None:
     p_detect.add_argument("--preview", type=Path, help="Save a frame with the detected box drawn on it")
 
     sub.add_parser("history", help="Show recent posts")
+    sub.add_parser("retry", help="Clear failed attempts so those clips are tried again on the next run")
 
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -110,6 +111,10 @@ def main(argv: list[str] | None = None) -> None:
         else:
             from .uploaders import tiktok
             tiktok.authorize(pcfg["token_file"])
+    elif args.cmd == "retry":
+        from .db import DB
+        count = DB(cfg.data_dir / "claud.db").reset_failed()
+        print(f"Cleared {count} failed attempt(s); they'll be retried on the next `claud run`.")
     elif args.cmd == "history":
         from .db import DB
         for row in DB(cfg.data_dir / "claud.db").history():

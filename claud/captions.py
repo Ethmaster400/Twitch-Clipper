@@ -1,11 +1,14 @@
 """Speech-to-text captions with faster-whisper, written as an ASS subtitle file."""
 from __future__ import annotations
 
+import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
+log = logging.getLogger("claud")
 
 
 @dataclass
@@ -49,7 +52,12 @@ def load_audio(video: Path) -> np.ndarray:
     return np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def transcribe(video: Path, model_size: str = "small") -> list[Word]:
+_gpu_failed = False  # remember a failed GPU attempt so later clips go straight to CPU
+
+
+def transcribe(video: Path, model_size: str = "small", device: str = "auto") -> list[Word]:
+    """device: auto (GPU if it works, else CPU), cuda or cpu."""
+    global _gpu_failed
     try:
         from faster_whisper import WhisperModel
     except ImportError as e:
@@ -58,14 +66,28 @@ def transcribe(video: Path, model_size: str = "small") -> list[Word]:
     audio = load_audio(video)
     if audio.size < SAMPLE_RATE // 2:  # no audio, or under half a second of it
         return []
-    model = WhisperModel(model_size, device="auto", compute_type="int8")
-    segments, _info = model.transcribe(audio, word_timestamps=True, vad_filter=True)
-    return [
-        Word(w.start, w.end, w.word.strip())
-        for seg in segments
-        for w in (seg.words or [])
-        if w.word.strip()
-    ]
+
+    devices = ["cpu"] if device == "auto" and _gpu_failed else [device]
+    if devices == ["auto"]:
+        devices.append("cpu")
+    for i, dev in enumerate(devices):
+        try:
+            model = WhisperModel(model_size, device=dev, compute_type="int8")
+            segments, _info = model.transcribe(audio, word_timestamps=True, vad_filter=True)
+            # segments is lazy: the GPU libraries are only loaded while iterating it.
+            return [
+                Word(w.start, w.end, w.word.strip())
+                for seg in segments
+                for w in (seg.words or [])
+                if w.word.strip()
+            ]
+        except Exception as e:
+            if i == len(devices) - 1:
+                raise
+            # e.g. an NVIDIA GPU without the CUDA libraries (cublas64_12.dll not found)
+            _gpu_failed = True
+            log.warning("Whisper couldn't use the GPU (%s); using the CPU instead", e)
+    return []
 
 
 def group_words(words: list[Word], per_caption: int) -> list[Word]:

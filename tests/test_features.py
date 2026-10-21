@@ -184,3 +184,49 @@ def test_load_audio_and_transcribe_skip_pyav(tmp_path, monkeypatch):
     assert captions.transcribe(with_audio) == [captions.Word(0.1, 0.4, "hello")]
     assert isinstance(seen["audio"], np.ndarray)   # raw samples, so faster-whisper never calls PyAV
     assert captions.transcribe(silent) == []
+
+
+def test_whisper_falls_back_to_cpu_when_gpu_libs_missing(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    import types
+
+    clip = tmp_path / "a.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:duration=2",
+                    "-f", "lavfi", "-i", "sine=duration=2", "-shortest", str(clip)], check=True)
+    devices = []
+
+    class FakeModel:
+        def __init__(self, size, device, compute_type):
+            devices.append(device)
+            self.device = device
+
+        def transcribe(self, audio, **kw):
+            def segments():  # lazy, like faster-whisper: GPU libs load while iterating
+                if self.device != "cpu":
+                    raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+                yield types.SimpleNamespace(words=[types.SimpleNamespace(start=0, end=0.5, word="hi")])
+            return segments(), None
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setattr(captions, "_gpu_failed", False)
+    assert captions.transcribe(clip) == [captions.Word(0, 0.5, "hi")]
+    assert devices == ["auto", "cpu"]
+    captions.transcribe(clip)                 # later clips skip the GPU attempt
+    assert devices == ["auto", "cpu", "cpu"]
+    with pytest.raises(RuntimeError):         # an explicit cuda setting doesn't silently fall back
+        captions.transcribe(clip, device="cuda")
+
+
+def test_retry_clears_failed_attempts(tmp_path):
+    from claud.db import DB, MAX_ATTEMPTS
+
+    db = DB(tmp_path / "t.db")
+    clip = Clip(id="c", streamer="s", title="t", url="u", views=1, duration=10, game_id="1")
+    db.upsert_clip(clip)
+    db.record_post("c", "youtube", remote_id="yt1")
+    for _ in range(MAX_ATTEMPTS):
+        db.record_post("c", "tiktok", error="render: boom")
+    assert not db.needs_post("c", "tiktok")
+    assert db.reset_failed() == 1
+    assert db.needs_post("c", "tiktok") and not db.needs_post("c", "youtube")
