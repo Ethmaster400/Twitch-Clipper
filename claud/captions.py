@@ -1,8 +1,11 @@
 """Speech-to-text captions with faster-whisper, written as an ASS subtitle file."""
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 
 @dataclass
@@ -28,14 +31,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
+SAMPLE_RATE = 16000  # what Whisper expects
+
+
+def load_audio(video: Path) -> np.ndarray:
+    """Mono 16 kHz float32 audio via ffmpeg; empty if the clip has no audio.
+
+    faster-whisper's own decoder goes through PyAV, whose API changes between releases
+    (PyAV 19 broke faster-whisper 1.2), so decode with the ffmpeg we already require."""
+    result = subprocess.run(
+        ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(video),
+         "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "s16le", "-"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return np.zeros(0, dtype=np.float32)
+    return np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 def transcribe(video: Path, model_size: str = "small") -> list[Word]:
     try:
         from faster_whisper import WhisperModel
     except ImportError as e:
         raise RuntimeError("Captions need faster-whisper: pip install '.[captions]'") from e
 
+    audio = load_audio(video)
+    if audio.size < SAMPLE_RATE // 2:  # no audio, or under half a second of it
+        return []
     model = WhisperModel(model_size, device="auto", compute_type="int8")
-    segments, _info = model.transcribe(str(video), word_timestamps=True, vad_filter=True)
+    segments, _info = model.transcribe(audio, word_timestamps=True, vad_filter=True)
     return [
         Word(w.start, w.end, w.word.strip())
         for seg in segments

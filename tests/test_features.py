@@ -149,3 +149,38 @@ def test_tiktok_auth_sends_pkce(monkeypatch, tmp_path, capsys):
     assert sent["auth"]["code_challenge"] == hashlib.sha256(verifier.encode()).hexdigest()
     assert 43 <= len(verifier) <= 128 and sent["token"]["code"] == "abc"
     assert (tmp_path / "tok.json").exists()
+
+
+def test_load_audio_and_transcribe_skip_pyav(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    import types
+
+    import numpy as np
+
+    with_audio, silent = tmp_path / "a.mp4", tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:duration=2",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-shortest", str(with_audio)], check=True)
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:duration=2",
+                    str(silent)], check=True)
+
+    audio = captions.load_audio(with_audio)
+    assert audio.dtype == np.float32 and abs(audio.size - 2 * captions.SAMPLE_RATE) < 2000
+    assert 0.1 < np.abs(audio).max() <= 1.0
+    assert captions.load_audio(silent).size == 0
+
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, *a, **kw):
+            pass
+
+        def transcribe(self, audio, **kw):
+            seen["audio"] = audio
+            word = types.SimpleNamespace(start=0.1, end=0.4, word=" hello")
+            return [types.SimpleNamespace(words=[word])], None
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel))
+    assert captions.transcribe(with_audio) == [captions.Word(0.1, 0.4, "hello")]
+    assert isinstance(seen["audio"], np.ndarray)   # raw samples, so faster-whisper never calls PyAV
+    assert captions.transcribe(silent) == []
