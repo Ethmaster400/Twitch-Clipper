@@ -12,13 +12,16 @@ from .twitch import Clip
 
 log = logging.getLogger("claud")
 
-PLATFORMS = ("youtube", "tiktok")
+PLATFORMS = ("youtube", "tiktok", "manual")
 
 
 def _uploader(name: str):
     if name == "youtube":
         from .uploaders import youtube
         return youtube.upload
+    if name == "manual":
+        from .uploaders import manual
+        return manual.upload
     from .uploaders import tiktok
     return tiktok.upload
 

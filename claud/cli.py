@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> None:
     p_loop.add_argument("--every", type=int, default=60, help="Minutes between runs")
 
     p_auth = sub.add_parser("auth", help="One-time OAuth for an upload platform")
-    p_auth.add_argument("platform", choices=pipeline.PLATFORMS)
+    p_auth.add_argument("platform", choices=("youtube", "tiktok"))
 
     p_render = sub.add_parser("render", help="Render a local video file to vertical (for testing)")
     p_render.add_argument("src", type=Path)

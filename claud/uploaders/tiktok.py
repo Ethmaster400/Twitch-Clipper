@@ -201,6 +201,7 @@ def _put_chunks(video: Path, upload_url: str, size: int, chunk_size: int, chunks
 
 
 def _wait_for_publish(token: str, publish_id: str, timeout_s: int = 600) -> str:
+    log.info("Uploaded; waiting for TikTok to finish processing (usually under a minute)...")
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         status = _post("/post/publish/status/fetch/", token, {"publish_id": publish_id})

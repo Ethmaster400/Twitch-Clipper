@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
+
 
 import pytest
 
@@ -230,3 +232,17 @@ def test_retry_clears_failed_attempts(tmp_path):
     assert not db.needs_post("c", "tiktok")
     assert db.reset_failed() == 1
     assert db.needs_post("c", "tiktok") and not db.needs_post("c", "youtube")
+
+
+def test_manual_destination_writes_video_and_caption(tmp_path):
+    from claud.metadata import PostMeta
+    from claud.uploaders import manual
+
+    video = tmp_path / "clip123.mp4"
+    video.write_bytes(b"fake video")
+    meta = PostMeta(title="WTH | caseoh_", description="desc here", hashtags=["#Caseoh", "#twitch"], tags=[])
+    out = Path(manual.upload(video, meta, {"folder": str(tmp_path / "ready")}))
+
+    assert out.exists() and out.read_bytes() == b"fake video" and out.name.endswith("_clip123.mp4")
+    text = out.with_suffix(".txt").read_text(encoding="utf-8")
+    assert "WTH | caseoh_ #Caseoh #twitch" in text and "desc here" in text

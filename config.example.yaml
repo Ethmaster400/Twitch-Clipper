@@ -76,5 +76,8 @@ platforms:
     mode: direct              # direct = post automatically; drafts = send to your TikTok inbox, you tap post
     privacy: PUBLIC_TO_EVERYONE   # direct mode only; unaudited TikTok apps can only post SELF_ONLY
     token_file: secrets/tiktok_token.json
+  manual:
+    enabled: false            # true = copy each new video + a caption .txt into `folder`, to upload yourself
+    folder: data/ready
 
 data_dir: data

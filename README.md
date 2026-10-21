@@ -29,6 +29,12 @@ cp config.example.yaml config.yaml  # add your streamers
 
 ## Usage
 
+To upload by hand instead of through the APIs (no TikTok/YouTube keys needed), set
+`platforms.manual.enabled: true` and turn the others off. Each run copies new videos into
+`data/ready/` with a `.txt` of the caption to paste, e.g. into TikTok Studio
+(tiktok.com/tiktokstudio), which can also schedule posts.
+
+
 ```bash
 claud run --dry-run   # find + download + render, no upload (check data/out/)
 claud run             # full pipeline once
