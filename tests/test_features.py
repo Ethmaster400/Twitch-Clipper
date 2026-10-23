@@ -241,8 +241,21 @@ def test_manual_destination_writes_video_and_caption(tmp_path):
     video = tmp_path / "clip123.mp4"
     video.write_bytes(b"fake video")
     meta = PostMeta(title="WTH | caseoh_", description="desc here", hashtags=["#Caseoh", "#twitch"], tags=[])
-    out = Path(manual.upload(video, meta, {"folder": str(tmp_path / "ready")}))
+    cfg = {"folder": str(tmp_path / "ready")}
+    out = Path(manual.upload(video, meta, cfg))
 
-    assert out.exists() and out.read_bytes() == b"fake video" and out.name.endswith("_clip123.mp4")
+    # named after the caption, since TikTok Studio pre-fills the description from the file name
+    assert out.name == "WTH - caseoh_ #Caseoh #twitch.mp4" and out.read_bytes() == b"fake video"
     text = out.with_suffix(".txt").read_text(encoding="utf-8")
     assert "WTH | caseoh_ #Caseoh #twitch" in text and "desc here" in text
+    # same caption again doesn't overwrite
+    assert Path(manual.upload(video, meta, cfg)).name == "WTH - caseoh_ #Caseoh #twitch (2).mp4"
+
+
+def test_safe_filename():
+    from claud.uploaders.manual import safe_filename
+
+    assert safe_filename('Why?? "no" way: 1/2 <ok>*') == "Why no way - 1-2 ok"
+    assert safe_filename("Caseoh Singing 😇🎤 | caseoh_ #Caseoh") == "Caseoh Singing 😇🎤 - caseoh_ #Caseoh"
+    assert len(safe_filename("word " * 100)) <= 150
+    assert safe_filename("???") == "clip" and safe_filename("ends with dot.") == "ends with dot"
