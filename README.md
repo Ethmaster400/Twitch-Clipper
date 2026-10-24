@@ -43,6 +43,12 @@ claud history         # what's been posted / failed
 claud render in.mp4 out.mp4 --captions   # test the editor on a local file
 ```
 
+On Windows, schedule a daily run with one command (output goes to `data\claud.log`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\schedule_daily.ps1 -At 09:00
+```
+
 Or schedule with cron:
 
 ```
