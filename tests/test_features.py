@@ -101,6 +101,7 @@ def test_tiktok_drafts_mode(monkeypatch, tmp_path):
         return {"status": "SEND_TO_USER_INBOX"}
 
     monkeypatch.setattr(tiktok, "_post", fake_post)
+    monkeypatch.setattr(tiktok, "account_name", lambda token: "Twitch Clips")
     video = tmp_path / "v.mp4"
     video.write_bytes(b"x" * 1000)
     meta = PostMeta(title="t", description="d", hashtags=["#a"], tags=[])
@@ -144,7 +145,9 @@ def test_tiktok_auth_sends_pkce(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr("builtins.input", fake_input)
     monkeypatch.setattr(tiktok, "_token_request", fake_token_request)
+    monkeypatch.setattr(tiktok, "account_name", lambda token: "Twitch Clips")
     tiktok.authorize(str(tmp_path / "tok.json"))
+    assert "Connected TikTok account: Twitch Clips" in capsys.readouterr().out
 
     verifier = sent["token"]["code_verifier"]
     assert sent["auth"]["code_challenge_method"] == "S256"
@@ -259,3 +262,16 @@ def test_safe_filename():
     assert safe_filename("Caseoh Singing 😇🎤 | caseoh_ #Caseoh") == "Caseoh Singing 😇🎤 - caseoh_ #Caseoh"
     assert len(safe_filename("word " * 100)) <= 150
     assert safe_filename("???") == "clip" and safe_filename("ends with dot.") == "ends with dot"
+
+
+def test_account_name(monkeypatch):
+    from claud.uploaders import tiktok
+
+    class Resp:
+        def json(self):
+            return {"data": {"user": {"display_name": "Twitch Clips", "open_id": "x"}}}
+
+    monkeypatch.setattr(tiktok.requests, "get", lambda *a, **kw: Resp())
+    assert tiktok.account_name("tok") == "Twitch Clips"
+    monkeypatch.setattr(tiktok.requests, "get", lambda *a, **kw: 1 / 0)
+    assert tiktok.account_name("tok") == "(unknown)"   # never blocks an upload

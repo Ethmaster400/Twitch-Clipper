@@ -75,6 +75,22 @@ def authorize(token_file: str) -> None:
     )
     _save(token_file, token)
     print(f"Saved TikTok token to {token_file}")
+    print(f"Connected TikTok account: {account_name(token['access_token'])}")
+
+
+def account_name(access_token: str) -> str:
+    """Display name of the connected account (user.info.basic), shown so you can confirm
+    Claud is posting where you expect."""
+    try:
+        r = requests.get(
+            f"{API}/user/info/",
+            params={"fields": "open_id,display_name"},
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=30,
+        )
+        return r.json()["data"]["user"]["display_name"]
+    except Exception:
+        return "(unknown)"
 
 
 def _token_request(fields: dict) -> dict:
@@ -137,6 +153,8 @@ def upload(video: Path, meta: PostMeta, cfg: dict) -> str:
     mode = cfg.get("mode", "direct")
     if mode not in ("direct", "drafts"):
         raise ValueError(f"Unknown TikTok mode {mode!r} (use 'direct' or 'drafts')")
+    target = "inbox as a draft" if mode == "drafts" else f"profile ({cfg.get('privacy', 'PUBLIC_TO_EVERYONE')})"
+    log.info("Uploading to TikTok account %s: %s", account_name(token), target)
 
     size = video.stat().st_size
     chunk_size, chunks = chunk_plan(size)
