@@ -14,6 +14,9 @@ param(
 $ErrorActionPreference = "Stop"
 $TaskName = "Claud daily clips"
 
+# With `powershell -File`, "-At 06:00,14:00" arrives as one string, so split on commas here.
+$At = @($At | ForEach-Object { $_ -split "," } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
 if ($Remove) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     Write-Host "Removed the scheduled task: $TaskName"
