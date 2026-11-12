@@ -38,7 +38,8 @@ publicly to TikTok and YouTube Shorts right away (paid plan, about $16-24/month)
    Turn `tiktok`/`youtube` off there so clips aren't sent twice.
 4. `claud profiles` checks the key and lists your profiles; then `claud run`.
 
-Set `monthly_minutes` to your plan's video-minutes allowance: Claud adds up what it has sent
+If your plan ever caps uploaded video minutes, set `monthly_minutes` (empty by default; Upload-Post's
+FFmpeg-processing minutes don't count, since Claud edits videos itself): Claud adds up what it has sent
 this month, spreads the allowance evenly over the month (`pace_evenly`), and holds clips back
 for a later run instead of going over. `claud status` shows minutes used.
 
