@@ -50,9 +50,15 @@ render:
   width: 1080
   height: 1920
   captions: true            # requires `pip install .[captions]`
-  whisper_model: small      # tiny / base / small / medium / large-v3
+  whisper_model: small      # tiny / base / small / medium / large-v3-turbo (best on a GPU)
   whisper_device: auto      # auto = NVIDIA GPU if its CUDA libraries work, else CPU; or cpu / cuda
   words_per_caption: 3
+  caption_max_chars: 18     # start a new caption once a chunk gets longer than this
+  caption_font: Arial Black # needs to be installed; Windows has it
+  gameplay_mode: crop       # facecam layout: crop = zoom into the gameplay; fit = whole game frame on blur
+  divider: true             # thin line between facecam and gameplay
+  normalize_volume: true    # level loudness so every clip is about equally loud
+  encoder: auto             # auto = NVIDIA GPU (NVENC) if available, else CPU; or nvenc / cpu
 
 metadata:
   title_template: "{title} | {streamer}"

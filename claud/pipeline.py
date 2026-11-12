@@ -100,7 +100,10 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
         captions.transcribe(src, rcfg.get("whisper_model", "small"), rcfg.get("whisper_device", "auto"))
         if rcfg.get("captions", True) else []
     )
-    chunks = captions.group_words(words, rcfg.get("words_per_caption", 3)) if words else []
+    chunks = (
+        captions.group_words(words, rcfg.get("words_per_caption", 3), rcfg.get("caption_max_chars", 18))
+        if words else []
+    )
 
     hcfg = cfg.section("hook")
     hook = None
@@ -118,12 +121,17 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
         subs = captions.write_ass(
             chunks, raw_dir / f"{clip.id}.ass", width, height, center_y,
             hook=hook, hook_seconds=hcfg.get("seconds", 3.0), hook_top=hook_top,
+            font=rcfg.get("caption_font", captions.DEFAULT_FONT),
         )
     return render.render_vertical(
         src, out, layout=layout, width=width, height=height, subtitles=subs,
         facecam=facecam,
         gameplay=streamer.gameplay if streamer else None,
         facecam_ratio=facecam_ratio,
+        gameplay_mode=rcfg.get("gameplay_mode", "crop"),
+        divider=rcfg.get("divider", True),
+        loudnorm=rcfg.get("normalize_volume", True),
+        encoder=rcfg.get("encoder", "auto"),
     )
 
 

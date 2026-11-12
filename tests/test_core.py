@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 import subprocess
 from pathlib import Path
 
@@ -60,7 +59,8 @@ def test_caption_grouping_and_ass(tmp_path):
     assert [c.text for c in chunks] == ["no way he", "hit", "that"]
     path = captions.write_ass(chunks, tmp_path / "c.ass")
     text = path.read_text()
-    assert "Dialogue: 0,0:00:00.00,0:00:00.90,Default,,0,0,0,,NO WAY HE" in text
+    assert "Dialogue: 0,0:00:00.00,0:00:00.90,Default,,0,0,0,,{\\pos(540,1344)" in text
+    assert text.count("\\t(0,80,") == 3 and "}NO WAY HE\n" in text   # pop-in on every caption
 
 
 def test_rect_parse():
@@ -150,3 +150,39 @@ def test_render_vertical(tmp_path, layout):
     video = next(s for s in probe["streams"] if s["codec_type"] == "video")
     assert (video["width"], video["height"]) == (1080, 1920)
     assert any(s["codec_type"] == "audio" for s in probe["streams"])
+
+
+def probe(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
+                         check=True, capture_output=True, text=True).stdout
+    return json.loads(out)["streams"]
+
+
+def test_split_fit_divider_fps_and_loudness(tmp_path):
+    from claud import render as r
+
+    # 60 fps gameplay with a quiet tone: fit mode, divider, frame rate kept, volume levelled
+    src = tmp_path / "src.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error",
+         "-f", "lavfi", "-i", "color=c=red:size=1280x720:rate=60:duration=2",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=2,volume=0.05",
+         "-vf", "drawbox=x=960:y=0:w=320:h=180:color=lime:t=fill", "-shortest", str(src)],
+        check=True,
+    )
+    out = r.render_vertical(src, tmp_path / "out.mp4", layout="split", gameplay_mode="fit",
+                            facecam=r.Rect(0.75, 0, 0.25, 0.25), encoder="cpu")
+    video = next(s for s in probe(out) if s["codec_type"] == "video")
+    assert (video["width"], video["height"]) == (1080, 1920)
+    assert video["r_frame_rate"] == "60/1"
+    top, _ = r.split_heights(1920, 0.35)
+    assert max(pixel(out, 540, top)) < 60          # dark divider on the seam
+    # fit: the whole red frame is letterboxed inside the gameplay panel, blurred copy around it
+    assert pixel(out, 540, top + 640)[0] > 200
+
+    def peak_db(path):
+        res = subprocess.run(["ffmpeg", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+                             capture_output=True, text=True).stderr
+        return float(res.split("mean_volume:")[1].split("dB")[0])
+
+    assert peak_db(out) > peak_db(src) + 6         # quiet clip brought up to a normal level

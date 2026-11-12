@@ -55,6 +55,17 @@ Or schedule with cron:
 0 * * * * cd /path/to/claud && .venv/bin/claud run >> data/cron.log 2>&1
 ```
 
+### Faster captions on an NVIDIA GPU
+
+```bash
+pip install -e '.[captions,gpu]'
+```
+
+This installs NVIDIA's CUDA libraries through pip, so Whisper runs on the GPU with no separate CUDA
+install. Then `whisper_model: large-v3-turbo` gives the most accurate captions at good speed. Without
+it, captions fall back to the CPU automatically. Rendering also uses the GPU encoder (NVENC) when
+available (`render.encoder: auto`).
+
 ## Config highlights (`config.yaml`)
 
 - `streamers[].permission` is **required**. Record how/when each streamer agreed.
@@ -65,6 +76,10 @@ Or schedule with cron:
 - `content_filter`: skips clips whose titles mention NSFW content, doxxing, swatting or self-harm (whole words). Add your own with `extra_terms`.
 - `hook`: a 4–8 word all-caps line in a white box for the first 3 seconds, written by Claude from the transcript.
   It goes at the top in the blur layout and just under the captions in the split layout, so it never covers the streamer's face.
+- `render`: captions use Arial Black with a pop-in, up to 3 words / 18 characters at a time.
+  `gameplay_mode: fit` shows the whole game frame on a blur under the facecam (`crop` zooms in),
+  `divider` draws a line between the two, and `normalize_volume` levels loudness. Clips keep their
+  own frame rate, up to 60 fps. Caption style, the GPU setup and fit mode come from streamclip.
 - `render.layout`: `auto` (default: facecam on top when one is found, otherwise fit + blurred background),
   `blur`, `crop` (center crop, fills the screen) or `split`. A streamer can override it with their own `layout`.
 

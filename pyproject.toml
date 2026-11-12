@@ -17,6 +17,8 @@ dependencies = [
 
 [project.optional-dependencies]
 captions = ["faster-whisper>=1.0"]
+# NVIDIA GPU captions without a separate CUDA install (Windows/Linux)
+gpu = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12==9.*"]
 dev = ["pytest>=8", "scikit-image>=0.22"]  # scikit-image: sample face photo for tests
 
 [project.scripts]

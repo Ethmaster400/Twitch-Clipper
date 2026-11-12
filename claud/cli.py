@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import time
 from pathlib import Path
 
@@ -9,6 +10,12 @@ from . import captions, config, pipeline, render
 
 
 def main(argv: list[str] | None = None) -> None:
+    # Windows consoles default to cp1252, which can't print emoji in clip titles.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     parser = argparse.ArgumentParser(prog="claud", description=__doc__)
     parser.add_argument("-c", "--config", default="config.yaml")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -32,6 +39,8 @@ def main(argv: list[str] | None = None) -> None:
     p_render.add_argument("--gameplay", type=render.Rect.parse, metavar="X,Y,W,H")
     p_render.add_argument("--facecam-height", type=float, default=0.35,
                           help="Share of the vertical frame given to the facecam")
+    p_render.add_argument("--gameplay-mode", default="crop", choices=("crop", "fit"),
+                          help="Split layout: crop = zoom into the gameplay, fit = whole frame on blur")
     p_render.add_argument("--captions", action="store_true")
 
     p_snap = sub.add_parser("snapshot", help="Save a frame from a clip URL or file, to find the facecam")
@@ -68,6 +77,7 @@ def main(argv: list[str] | None = None) -> None:
         render.render_vertical(
             args.src, args.dst, layout=layout, subtitles=subs,
             facecam=facecam, gameplay=args.gameplay, facecam_ratio=args.facecam_height,
+            gameplay_mode=args.gameplay_mode,
         )
         print(f"Wrote {args.dst}")
         return

@@ -83,7 +83,7 @@ def test_claude_hook_request_and_fallback(monkeypatch):
 
 def test_hook_in_ass(tmp_path):
     text = captions.write_ass([], tmp_path / "h.ass", hook="watch this", hook_seconds=2.5).read_text()
-    assert "Dialogue: 1,0:00:00.00,0:00:02.50,Hook,,0,0,0,,WATCH THIS" in text
+    assert "Dialogue: 1,0:00:00.00,0:00:02.50,Hook,,0,0,0,,{\\pos(540,134)}WATCH THIS" in text
 
 
 def test_tiktok_drafts_mode(monkeypatch, tmp_path):
@@ -275,3 +275,26 @@ def test_account_name(monkeypatch):
     assert tiktok.account_name("tok") == "Twitch Clips"
     monkeypatch.setattr(tiktok.requests, "get", lambda *a, **kw: 1 / 0)
     assert tiktok.account_name("tok") == "(unknown)"   # never blocks an upload
+
+
+def test_group_words_breaks_on_length_and_punctuation():
+    w = lambda t, s: captions.Word(s, s + 0.2, t)
+    chunks = captions.group_words([w("ok", 0), w("what.", 0.3), w("absolutely", 0.6),
+                                   w("incredible", 0.9), w("bro", 1.2)], 3, max_chars=18)
+    assert [c.text for c in chunks] == ["ok what.", "absolutely", "incredible bro"]
+
+
+def test_clean_hook():
+    assert captions.clean_hook("NO WAY 😱🔥!!! he did THAT???") == "NO WAY! he did THAT?"
+    assert captions.clean_hook("HE HIT THE SHOT 🔥🔥!!!") == "HE HIT THE SHOT!"
+    assert captions.clean_hook("🎤🎵") == ""
+
+
+def test_encoder_falls_back_to_cpu(monkeypatch):
+    from claud import render
+
+    monkeypatch.setattr(render, "nvenc_available", lambda: False)
+    assert "libx264" in render.video_encoder("auto")
+    monkeypatch.setattr(render, "nvenc_available", lambda: True)
+    assert "h264_nvenc" in render.video_encoder("auto")
+    assert "libx264" in render.video_encoder("cpu")
