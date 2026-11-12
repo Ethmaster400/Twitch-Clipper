@@ -374,3 +374,76 @@ def test_db_adds_moment_columns_to_old_database(tmp_path):
     assert db.posted_clips()[0].video_id == ""          # opened fine, nothing known yet
     db.remember_moment(moment_clip("best", 5, offset=1000))
     assert db.posted_clips()[0].vod_offset == 1000      # filled in once seen again
+
+
+def test_uploadpost_sends_tiktok_and_youtube_fields(tmp_path, monkeypatch):
+    import requests
+
+    from claud.metadata import PostMeta
+    from claud.uploaders import uploadpost
+
+    monkeypatch.setenv("UPLOAD_POST_API_KEY", "test-key")
+    sent = {}
+
+    class Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"success": True, "request_id": "req_123", "warnings": ["music ignored"]}
+
+    def fake_post(self, url, data=None, files=None, json=None):
+        sent.update(url=url, data=data, files=[f[0] for f in files or []], auth=self.headers["Authorization"])
+        return Resp()
+
+    monkeypatch.setattr(requests.Session, "post", fake_post)
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    meta = PostMeta(title="WTH | caseoh_", description="Clipped from caseoh_", hashtags=["#Caseoh", "#twitch"],
+                    tags=["caseoh_", "twitch"])
+    cfg = {"profile": "twitchclips", "platforms": ["tiktok", "youtube"], "queue": True,
+           "tiktok_privacy": "PUBLIC_TO_EVERYONE", "youtube_privacy": "public"}
+
+    assert uploadpost.upload(video, meta, cfg) == "req_123"
+    fields = dict(sent["data"])
+    assert sent["url"] == "https://api.upload-post.com/api/upload" and sent["auth"] == "Apikey test-key"
+    assert sent["files"] == ["video"]
+    assert [v for k, v in sent["data"] if k == "platform[]"] == ["tiktok", "youtube"]
+    assert fields["user"] == "twitchclips" and fields["add_to_queue"] == "true"
+    assert fields["tiktok_title"] == "WTH | caseoh_ #Caseoh #twitch"
+    assert fields["privacy_level"] == "PUBLIC_TO_EVERYONE"
+    assert fields["youtube_title"] == "WTH | caseoh_ #Shorts" and fields["privacyStatus"] == "public"
+    assert fields["youtube_description"] == "Clipped from caseoh_" and fields["categoryId"] == "20"
+
+
+def test_uploadpost_needs_profile_and_reports_rejection(tmp_path, monkeypatch):
+    from claud.metadata import PostMeta
+    from claud.uploaders import uploadpost
+
+    meta = PostMeta(title="t", description="d", hashtags=[], tags=[])
+    with pytest.raises(RuntimeError, match="profile"):
+        uploadpost.upload(tmp_path / "v.mp4", meta, {})
+    fake = SimpleNamespace(upload_video=lambda *a, **kw: {"success": False, "message": "TikTok not connected"})
+    monkeypatch.setattr(uploadpost, "client", lambda: fake)
+    with pytest.raises(RuntimeError, match="TikTok not connected"):
+        uploadpost.upload(tmp_path / "v.mp4", meta, {"profile": "p"})
+
+
+def test_uploadpost_youtube_title_fits():
+    from claud.metadata import PostMeta
+    from claud.uploaders.uploadpost import youtube_title
+
+    long = PostMeta(title="x" * 100, description="", hashtags=[], tags=[])
+    assert len(youtube_title(long)) <= 100 and youtube_title(long).endswith(" #Shorts")
+    tagged = PostMeta(title="Clip #Shorts", description="", hashtags=[], tags=[])
+    assert youtube_title(tagged) == "Clip #Shorts"
+
+
+def test_uploadpost_list_profiles(monkeypatch):
+    from claud.uploaders import uploadpost
+
+    fake = SimpleNamespace(list_users=lambda: {"success": True, "profiles": [{"username": "twitchclips"}]})
+    monkeypatch.setattr(uploadpost, "client", lambda: fake)
+    assert uploadpost.list_profiles() == ["twitchclips"]

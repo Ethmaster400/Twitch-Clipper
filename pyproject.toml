@@ -13,6 +13,7 @@ dependencies = [
     "numpy>=1.24",
     "opencv-python-headless>=4.8",   # YuNet face detector for facecam detection
     "anthropic>=1.0",                # AI hook text
+    "upload-post>=2.14",             # Upload-Post's official client (TikTok + YouTube posting)
 ]
 
 [project.optional-dependencies]

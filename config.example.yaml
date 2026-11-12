@@ -83,6 +83,14 @@ platforms:
     mode: direct              # direct = post automatically; drafts = send to your TikTok inbox, you tap post
     privacy: PUBLIC_TO_EVERYONE   # direct mode only; unaudited TikTok apps can only post SELF_ONLY
     token_file: secrets/tiktok_token.json
+  uploadpost:
+    enabled: false            # true = post publicly to TikTok + YouTube Shorts via upload-post.com
+    profile: ""               # your profile name in the Upload-Post dashboard (`claud profiles` lists them)
+    platforms: [tiktok, youtube]
+    queue: false              # true = post in the time slots set in the Upload-Post dashboard
+    tiktok_privacy: PUBLIC_TO_EVERYONE
+    youtube_privacy: public   # public / unlisted / private
+    youtube_category_id: "20" # 20 = Gaming
   manual:
     enabled: false            # true = copy each new video + a caption .txt into `folder`, to upload yourself
     folder: data/ready

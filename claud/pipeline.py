@@ -12,7 +12,7 @@ from .twitch import Clip
 
 log = logging.getLogger("claud")
 
-PLATFORMS = ("youtube", "tiktok", "manual")
+PLATFORMS = ("youtube", "tiktok", "uploadpost", "manual")
 
 
 def _uploader(name: str):
@@ -22,6 +22,9 @@ def _uploader(name: str):
     if name == "manual":
         from .uploaders import manual
         return manual.upload
+    if name == "uploadpost":
+        from .uploaders import uploadpost
+        return uploadpost.upload
     from .uploaders import tiktok
     return tiktok.upload
 

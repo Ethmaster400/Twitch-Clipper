@@ -27,6 +27,21 @@ cp config.example.yaml config.yaml  # add your streamers
 | TikTok | [developers.tiktok.com](https://developers.tiktok.com/) → app with **Login Kit** + **Content Posting API**, scopes `video.publish` + `video.upload` | Keys → `.env`, then `claud auth tiktok`. Until TikTok audits the app, direct posts can only be `SELF_ONLY` (private). Set `mode: drafts` to send videos to your TikTok inbox instead and post them from the app; the log prints a caption to paste. |
 | Anthropic (optional) | [console.anthropic.com](https://console.anthropic.com/) | `ANTHROPIC_API_KEY` → `.env`. Claude writes the hook line; without a key a keyword fallback is used. |
 
+## Posting publicly without app reviews (Upload-Post)
+
+[Upload-Post](https://www.upload-post.com) is already approved by TikTok and Google, so Claud can post
+publicly to TikTok and YouTube Shorts right away (paid plan, about $16-24/month).
+
+1. In the Upload-Post dashboard, create a profile and connect your TikTok and YouTube accounts to it.
+2. Copy your API key into `.env` as `UPLOAD_POST_API_KEY=...`.
+3. In `config.yaml`, set `platforms.uploadpost.enabled: true` and `profile:` to the profile's name.
+   Turn `tiktok`/`youtube` off there so clips aren't sent twice.
+4. `claud profiles` checks the key and lists your profiles; then `claud run`.
+
+Each clip is uploaded once and Upload-Post publishes it to every platform in `platforms`. With
+`queue: true` posts go into the time slots set in the dashboard instead of all at once. Results
+show in the Upload-Post dashboard; `claud history` shows the request ID for each clip.
+
 ## Usage
 
 To upload by hand instead of through the APIs (no TikTok/YouTube keys needed), set

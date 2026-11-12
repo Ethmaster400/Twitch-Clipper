@@ -53,6 +53,7 @@ def main(argv: list[str] | None = None) -> None:
     p_detect.add_argument("--preview", type=Path, help="Save a frame with the detected box drawn on it")
 
     sub.add_parser("history", help="Show recent posts")
+    sub.add_parser("profiles", help="Check the Upload-Post API key and list your Upload-Post profiles")
     sub.add_parser("retry", help="Clear failed attempts so those clips are tried again on the next run")
 
     args = parser.parse_args(argv)
@@ -121,6 +122,13 @@ def main(argv: list[str] | None = None) -> None:
         else:
             from .uploaders import tiktok
             tiktok.authorize(pcfg["token_file"])
+    elif args.cmd == "profiles":
+        from .uploaders import uploadpost
+        names = uploadpost.list_profiles()
+        print("Upload-Post API key works. Profiles: " + (", ".join(names) or "(none yet)"))
+        wanted = cfg.platform("uploadpost").get("profile")
+        if wanted and wanted not in names:
+            print(f"Warning: config.yaml uses profile {wanted!r}, which isn't in that list.")
     elif args.cmd == "retry":
         from .db import DB
         count = DB(cfg.data_dir / "claud.db").reset_failed()
