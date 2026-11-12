@@ -447,3 +447,20 @@ def test_uploadpost_list_profiles(monkeypatch):
     fake = SimpleNamespace(list_users=lambda: {"success": True, "profiles": [{"username": "twitchclips"}]})
     monkeypatch.setattr(uploadpost, "client", lambda: fake)
     assert uploadpost.list_profiles() == ["twitchclips"]
+
+
+def test_run_stops_early_on_placeholder_profile(tmp_path, monkeypatch):
+    from claud import config, pipeline
+
+    monkeypatch.setenv("UPLOAD_POST_API_KEY", "k")
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        f"data_dir: {tmp_path / 'data'}\n"
+        "streamers:\n  - {login: caseoh_, permission: yes}\n"
+        "platforms:\n  uploadpost: {enabled: true, profile: YOUR-PROFILE-NAME}\n"
+    )
+    cfg = config.load(cfg_file)
+    with pytest.raises(SystemExit, match="claud profiles"):
+        pipeline.check_settings(cfg, ["uploadpost"])
+    cfg.raw["platforms"]["uploadpost"]["profile"] = "twitchclips"
+    pipeline.check_settings(cfg, ["uploadpost"])   # real name: fine

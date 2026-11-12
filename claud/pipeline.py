@@ -149,10 +149,24 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
     )
 
 
+def check_settings(cfg: Config, platforms: list[str]) -> None:
+    """Catch config mistakes before spending time downloading and rendering clips."""
+    if "uploadpost" in platforms:
+        profile = (cfg.platform("uploadpost").get("profile") or "").strip()
+        if not profile or profile.upper() == "YOUR-PROFILE-NAME":
+            raise SystemExit(
+                "Set platforms.uploadpost.profile in config.yaml to your Upload-Post profile name "
+                "(run `claud profiles` to see it)."
+            )
+        env("UPLOAD_POST_API_KEY")
+
+
 def run(cfg: Config, *, dry_run: bool = False) -> None:
     platforms = enabled_platforms(cfg)
     if not platforms:
         log.warning("No platforms enabled in config")
+    if not dry_run:
+        check_settings(cfg, platforms)
     db = DB(cfg.data_dir / "claud.db")
     tw = twitch.Twitch(env("TWITCH_CLIENT_ID"), env("TWITCH_CLIENT_SECRET"))
     streamers = {s.login: s for s in cfg.streamers}
