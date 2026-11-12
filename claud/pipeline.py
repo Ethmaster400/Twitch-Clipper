@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import captions, content_filter, hooks, metadata, ranking, render, twitch
+from . import captions, content_filter, hooks, metadata, ranking, render, streamtype, twitch
 from .config import Config, Streamer, env
 from .render import Rect
 from .db import DB
@@ -72,13 +72,30 @@ def find_candidates(cfg: Config, tw: twitch.Twitch, db: DB, platforms: list[str]
 
 
 def resolve_layout(rcfg: dict, streamer: Streamer | None, src: Path | None = None,
-                   detect=None) -> tuple[str, Rect | None]:
-    """Pick the layout and facecam region for one clip.
+                   detect=None, stream_type: str = streamtype.GAMING,
+                   find_face=None) -> tuple[str, Rect | None]:
+    """Pick the layout and the region it needs (facecam for split, crop window for face).
 
-    Per-streamer layout wins over render.layout. For `auto` and `split`, a facecam set in the
-    config is used as-is; otherwise it is detected from the clip. No facecam -> blur (fit + blurred background).
+    A per-streamer layout wins. Otherwise the clip's stream type decides, via
+    render.layout_by_type (default: gaming -> render.layout / auto, irl -> face).
+    auto/split: facecam on top if one is set or detected, else blur.
+    face: full-screen crop centred on the person, else blur.
     """
-    layout = (streamer and streamer.layout) or rcfg.get("layout", "auto")
+    by_type = {streamtype.GAMING: rcfg.get("layout", "auto"), streamtype.IRL: "face",
+               **(rcfg.get("layout_by_type") or {})}
+    layout = (streamer and streamer.layout) or by_type.get(stream_type, "auto")
+    who = streamer.login if streamer else src
+    if layout == "face":
+        window = None
+        if src is not None:
+            try:
+                window = (find_face or detect_face_window)(src)
+            except Exception as e:
+                log.warning("Face detection failed for %s: %s", getattr(src, "name", src), e)
+        if window is None:
+            log.info("No face to crop to for %s; using blur", who)
+            return "blur", None
+        return "face", window
     if layout not in ("auto", "split"):
         return layout, None
     if streamer and streamer.facecam:
@@ -90,9 +107,14 @@ def resolve_layout(rcfg: dict, streamer: Streamer | None, src: Path | None = Non
         except Exception as e:
             log.warning("Facecam detection failed for %s: %s", src.name, e)
     if facecam is None:
-        log.info("No facecam for %s; using blur", streamer.login if streamer else src)
+        log.info("No facecam for %s; using blur", who)
         return "blur", None
     return "split", facecam
+
+
+def detect_face_window(src: Path) -> Rect | None:
+    from . import facecam
+    return facecam.face_window(src)
 
 
 def detect_facecam(src: Path) -> Rect | None:
@@ -109,7 +131,9 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
 
     facecam_ratio = rcfg.get("facecam_height", 0.35)
     src = twitch.download(clip, raw_dir)
-    layout, facecam = resolve_layout(rcfg, streamer, src)
+    stype = streamtype.classify(clip.game_name, rcfg.get("irl_categories") or [])
+    log.info("Stream type: %s (%s)", stype, clip.game_name or "unknown category")
+    layout, region = resolve_layout(rcfg, streamer, src, stream_type=stype)
     words = (
         captions.transcribe(src, rcfg.get("whisper_model", "small"), rcfg.get("whisper_device", "auto"))
         if rcfg.get("captions", True) else []
@@ -128,10 +152,11 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
     subs = None
     if chunks or hook:
         # In the split layout, captions sit on the seam between facecam and gameplay and the
-        # hook goes just below them, so neither covers the streamer's face. Otherwise the hook
-        # sits at the top, over the blurred background.
+        # hook goes just below them, so neither covers the streamer's face. In blur/crop the
+        # hook sits at the top, over the blurred background.
         center_y = facecam_ratio if layout == "split" else 0.7
-        hook_top = facecam_ratio + 0.045 if layout == "split" else 0.07
+        # face: the person fills the screen, so keep the hook off their head, above the captions
+        hook_top = {"split": facecam_ratio + 0.045, "face": 0.58}.get(layout, 0.07)
         subs = captions.write_ass(
             chunks, raw_dir / f"{clip.id}.ass", width, height, center_y,
             hook=hook, hook_seconds=hcfg.get("seconds", 3.0), hook_top=hook_top,
@@ -139,7 +164,8 @@ def prepare_video(cfg: Config, clip: Clip, raw_dir: Path, out_dir: Path, streame
         )
     return render.render_vertical(
         src, out, layout=layout, width=width, height=height, subtitles=subs,
-        facecam=facecam,
+        facecam=region if layout == "split" else None,
+        window=region if layout == "face" else None,
         gameplay=streamer.gameplay if streamer else None,
         facecam_ratio=facecam_ratio,
         gameplay_mode=rcfg.get("gameplay_mode", "crop"),

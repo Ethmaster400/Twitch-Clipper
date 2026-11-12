@@ -203,3 +203,28 @@ def detect(video: Path, samples: int = 16) -> Rect | None:
     rect = locate([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames], faces)
     log.info("Facecam detection for %s: %s", video.name, rect or "none found")
     return rect
+
+
+def window_around(face, width: int, height: int, aspect: float = 9 / 16) -> Rect:
+    """Full-height window of the given aspect (width/height), centred on the face where possible."""
+    fx, _fy, fw, _fh = face
+    w = min(1.0, height * aspect / width)
+    centre = (fx + fw / 2) / width
+    x = min(max(centre - w / 2, 0.0), 1.0 - w)
+    return Rect(round(x, 4), 0.0, round(w, 4), 1.0)
+
+
+def face_window(video: Path, samples: int = 12) -> Rect | None:
+    """For full-screen camera (IRL) clips: a 9:16 crop window centred on the person, as frame
+    fractions, or None if no steady face is found. The window is fixed for the whole clip."""
+    frames = sample_frames(video, samples)
+    if len(frames) < 3:
+        return None
+    face = persistent_face([find_faces(f) for f in frames], len(frames))
+    if face is None:
+        log.info("No steady face in %s for a face crop", video.name)
+        return None
+    height, width = frames[0].shape[:2]
+    rect = window_around(face, width, height)
+    log.info("Face crop for %s: %s", video.name, rect)
+    return rect

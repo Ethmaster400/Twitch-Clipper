@@ -41,6 +41,8 @@ def main(argv: list[str] | None = None) -> None:
                           help="Share of the vertical frame given to the facecam")
     p_render.add_argument("--gameplay-mode", default="crop", choices=("crop", "fit"),
                           help="Split layout: crop = zoom into the gameplay, fit = whole frame on blur")
+    p_render.add_argument("--type", default="gaming", choices=("gaming", "irl"),
+                          help="Stream type, as the pipeline labels it: gaming or irl (full-screen camera)")
     p_render.add_argument("--captions", action="store_true")
 
     p_snap = sub.add_parser("snapshot", help="Save a frame from a clip URL or file, to find the facecam")
@@ -63,11 +65,12 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     if args.cmd == "render":
-        layout, facecam = args.layout, args.facecam
-        if layout in ("auto", "split"):
+        layout, region = args.layout, args.facecam
+        if layout in ("auto", "split", "face"):
             from .pipeline import resolve_layout
-            layout, facecam = resolve_layout({}, config.Streamer("cli", "cli", layout=layout, facecam=facecam), args.src)
-            print(f"Layout: {layout}" + (f", facecam {facecam}" if facecam else ""))
+            streamer = config.Streamer("cli", "cli", layout=None if layout == "auto" else layout, facecam=region)
+            layout, region = resolve_layout({}, streamer, args.src, stream_type=args.type)
+            print(f"Layout: {layout}" + (f", region {region}" if region else ""))
         subs = None
         if args.captions:
             words = captions.transcribe(args.src)
@@ -77,7 +80,8 @@ def main(argv: list[str] | None = None) -> None:
             )
         render.render_vertical(
             args.src, args.dst, layout=layout, subtitles=subs,
-            facecam=facecam, gameplay=args.gameplay, facecam_ratio=args.facecam_height,
+            facecam=region if layout == "split" else None, window=region if layout == "face" else None,
+            gameplay=args.gameplay, facecam_ratio=args.facecam_height,
             gameplay_mode=args.gameplay_mode,
         )
         print(f"Wrote {args.dst}")

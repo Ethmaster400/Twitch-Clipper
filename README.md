@@ -101,6 +101,17 @@ available (`render.encoder: auto`).
 - `render.layout`: `auto` (default: facecam on top when one is found, otherwise fit + blurred background),
   `blur`, `crop` (center crop, fills the screen) or `split`. A streamer can override it with their own `layout`.
 
+### Gaming vs IRL clips
+
+Each clip is labelled from its Twitch category (logged as `Stream type: irl (Just Chatting)`):
+
+- **gaming** (any game): facecam on top and gameplay below if a facecam is found, else the full frame on a blur.
+- **irl** (Just Chatting, IRL, Music, Talk Shows & Podcasts, Travel & Outdoors, ...): the person is the whole
+  picture, so the clip is cropped full screen and centred on them (`face` layout), else the full frame on a blur.
+
+Change the mapping with `render.layout_by_type`, add categories with `render.irl_categories`, or set
+`layout:` on a streamer to override it for them.
+
 ### Facecam layout
 
 With `layout: auto`, every clip is checked for a webcam overlay:

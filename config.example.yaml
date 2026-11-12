@@ -46,6 +46,11 @@ render:
                             # blur  = full frame centered over a blurred background
                             # crop  = center crop, fills the screen
                             # split = always facecam on top (detected if not set; falls back to blur)
+                            # face  = full-screen crop centred on the person (falls back to blur)
+  layout_by_type:           # each clip is labelled by its Twitch category (logged as "Stream type")
+    gaming: auto            # games: facecam on top if found, else blur
+    irl: face               # Just Chatting, IRL, Music...: full-screen crop centred on the person
+  irl_categories: []        # extra Twitch categories to treat as IRL, e.g. ["Sports"]
   detect_facecam: true      # set false to only use facecams written in this config
   facecam_height: 0.35      # split layout: share of the vertical frame given to the facecam
   width: 1080

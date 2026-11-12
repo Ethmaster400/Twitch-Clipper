@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-LAYOUTS = ("blur", "crop", "split")
+LAYOUTS = ("blur", "crop", "split", "face")
 
 
 @dataclass
@@ -72,16 +72,22 @@ def build_filter(
     facecam_ratio: float = 0.35,
     gameplay_mode: str = "crop",
     divider: bool = True,
+    window: Rect | None = None,
 ) -> str:
     """gameplay_mode (split layout): "crop" zooms into a slice of the gameplay that fills its
     panel; "fit" shows the whole gameplay frame over a blurred copy (from streamclip).
-    divider: a thin dark line between the facecam and gameplay panels."""
+    divider: a thin dark line between the facecam and gameplay panels.
+    window (face layout): the part of the frame to show full screen, e.g. centred on the person."""
     if gameplay_mode not in ("crop", "fit"):
         raise ValueError(f"Unknown gameplay_mode {gameplay_mode!r} (use 'crop' or 'fit')")
     if layout == "blur":
         graph = _blur_fit(width, height, "[0:v]", "full")
     elif layout == "crop":
         graph = f"[0:v]{_fill(width, height)}"
+    elif layout == "face":
+        if window is None:
+            raise ValueError("The face layout needs a crop window")
+        graph = f"[0:v]{window.crop()},{_fill(width, height)}"
     elif layout == "split":
         if facecam is None:
             raise ValueError("The split layout needs a facecam region")
@@ -149,11 +155,12 @@ def render_vertical(
     divider: bool = True,
     loudnorm: bool = True,
     encoder: str = "auto",
+    window: Rect | None = None,
 ) -> Path:
     dst.parent.mkdir(parents=True, exist_ok=True)
     graph = build_filter(
         layout, width, height, subtitles, facecam=facecam, gameplay=gameplay,
-        facecam_ratio=facecam_ratio, gameplay_mode=gameplay_mode, divider=divider,
+        facecam_ratio=facecam_ratio, gameplay_mode=gameplay_mode, divider=divider, window=window,
     )
     # Keep the clip's own frame rate (Twitch clips are often 60 fps), capped at MAX_FPS.
     graph = graph.removesuffix("[out]") + f",fps=fps='min(source_fps,{MAX_FPS})'[out]"
