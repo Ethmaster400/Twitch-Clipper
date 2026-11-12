@@ -17,6 +17,7 @@ selection:
   min_views: 500            # ignore clips below this view count
   max_duration_s: 60        # Shorts/TikTok sweet spot; YouTube Shorts allows up to 180s
   max_posts_per_run: 3      # across all streamers, per `claud run`
+  same_moment_window_s: 90  # clips this close together in the stream count as one moment; 0 = off
 
 # Which clips go first. Each signal is scaled 0-1 across the candidates, then weighted.
 ranking:

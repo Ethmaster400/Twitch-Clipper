@@ -70,6 +70,9 @@ available (`render.encoder: auto`).
 
 - `streamers[].permission` is **required**. Record how/when each streamer agreed.
 - `selection`: lookback window, minimum views, maximum duration, posts per run.
+- `selection.same_moment_window_s` (default 90): viewers often clip the same moment several times. Only
+  the best-ranked clip of each moment is used, and never one whose moment was already posted. Clips
+  starting within this many seconds of each other in the same stream count as one moment.
 - `ranking`: which clips go first. Signals are scaled 0–1 and weighted: views per hour (velocity),
   total views, recency, length (15–60s scores best) and an energetic title. A clip taking off right now
   beats an older one with more total views.

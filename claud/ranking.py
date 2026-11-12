@@ -90,3 +90,20 @@ def rank(clips: list[Clip], cfg: dict | None = None, now: datetime | None = None
         }
         scored.append((sum(weights[k] * parts[k] for k in parts), clip))
     return sorted(scored, key=lambda pair: (pair[0], pair[1].views), reverse=True)
+
+
+def same_moment(a: Clip, b: Clip, window_s: float = 90) -> bool:
+    """True if two clips are of the same moment: several viewers often clip the same play.
+
+    Uses where each clip starts in the stream's VOD when Twitch has it, otherwise when the
+    clips were created. (The created-time fallback is how streamclip does it.)"""
+    if a.id == b.id or a.streamer.lower() != b.streamer.lower():
+        return False
+    if a.video_id and b.video_id and a.vod_offset is not None and b.vod_offset is not None:
+        return a.video_id == b.video_id and abs(a.vod_offset - b.vod_offset) < window_s
+    try:
+        ta = datetime.fromisoformat(a.created_at.replace("Z", "+00:00"))
+        tb = datetime.fromisoformat(b.created_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return abs((ta - tb).total_seconds()) < window_s

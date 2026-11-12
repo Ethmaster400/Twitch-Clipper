@@ -298,3 +298,79 @@ def test_encoder_falls_back_to_cpu(monkeypatch):
     monkeypatch.setattr(render, "nvenc_available", lambda: True)
     assert "h264_nvenc" in render.video_encoder("auto")
     assert "libx264" in render.video_encoder("cpu")
+
+
+def moment_clip(id, views, video_id="v1", offset=None, created="2026-11-12T20:00:00Z", streamer="caseoh_"):
+    return Clip(id=id, streamer=streamer, title=f"clip {id}", url=f"https://clips.twitch.tv/{id}",
+                views=views, duration=30, game_id="1", created_at=created, video_id=video_id,
+                vod_offset=offset)
+
+
+def test_same_moment():
+    a = moment_clip("a", 900, offset=1000)
+    assert ranking.same_moment(a, moment_clip("b", 50, offset=1060))           # 60 s apart in the VOD
+    assert not ranking.same_moment(a, moment_clip("c", 50, offset=1200))       # different moment
+    assert not ranking.same_moment(a, moment_clip("d", 50, video_id="v2", offset=1000))  # other stream
+    assert not ranking.same_moment(a, moment_clip("e", 50, offset=1000, streamer="jynxzi"))
+    assert not ranking.same_moment(a, a)
+    # no VOD info: fall back to when the clips were made
+    x = moment_clip("x", 1, video_id="", created="2026-11-12T20:00:00Z")
+    assert ranking.same_moment(x, moment_clip("y", 1, video_id="", created="2026-11-12T20:01:00Z"))
+    assert not ranking.same_moment(x, moment_clip("z", 1, video_id="", created="2026-11-12T20:05:00Z"))
+
+
+def test_find_candidates_keeps_one_clip_per_moment(tmp_path):
+    from claud import config, pipeline
+    from claud.db import DB
+
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        f"data_dir: {tmp_path / 'data'}\n"
+        "selection: {min_views: 1, max_posts_per_run: 10}\n"
+        "streamers:\n  - {login: caseoh_, permission: yes}\n"
+    )
+    cfg = config.load(cfg_file)
+    db = DB(tmp_path / "t.db")
+    clips = [
+        moment_clip("best", 5000, offset=1000),
+        moment_clip("dup1", 800, offset=1030),     # same moment as "best"
+        moment_clip("dup2", 300, offset=990),      # same moment as "best"
+        moment_clip("other", 1200, offset=4000),   # a different moment
+    ]
+    tw = SimpleNamespace(top_clips=lambda login, hours: list(clips))
+
+    picked = [c.id for c, _ in pipeline.find_candidates(cfg, tw, db, ["manual"])]
+    assert sorted(picked) == ["best", "other"]
+
+    # next run, after "best" was posted: its duplicates must not be posted instead
+    db.upsert_clip(clips[0])
+    db.record_post("best", "manual", remote_id="x")
+    picked = [c.id for c, _ in pipeline.find_candidates(cfg, tw, db, ["manual"])]
+    assert picked == ["other"]
+
+    # turning the check off brings them back
+    cfg.raw["selection"]["same_moment_window_s"] = 0
+    picked = [c.id for c, _ in pipeline.find_candidates(cfg, tw, db, ["manual"])]
+    assert sorted(picked) == ["dup1", "dup2", "other"]
+
+
+def test_db_adds_moment_columns_to_old_database(tmp_path):
+    import sqlite3
+
+    from claud.db import DB
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE clips (id TEXT PRIMARY KEY, streamer TEXT NOT NULL, title TEXT NOT NULL, "
+        "url TEXT NOT NULL, views INTEGER NOT NULL, video_path TEXT, created_at TEXT);"
+        "INSERT INTO clips (id, streamer, title, url, views) VALUES ('best', 'caseoh_', 't', 'u', 5);"
+    )
+    old.commit()
+    old.close()
+
+    db = DB(path)
+    db.record_post("best", "tiktok", remote_id="x")
+    assert db.posted_clips()[0].video_id == ""          # opened fine, nothing known yet
+    db.remember_moment(moment_clip("best", 5, offset=1000))
+    assert db.posted_clips()[0].vod_offset == 1000      # filled in once seen again

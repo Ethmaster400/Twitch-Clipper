@@ -22,6 +22,8 @@ class Clip:
     game_id: str
     game_name: str = ""
     created_at: str = ""
+    video_id: str = ""              # the VOD the clip was cut from ("" if the VOD is gone)
+    vod_offset: int | None = None   # seconds into that VOD where the clip starts
 
 
 class Twitch:
@@ -86,6 +88,8 @@ class Twitch:
                 duration=c["duration"],
                 game_id=c["game_id"],
                 created_at=c["created_at"],
+                video_id=c.get("video_id") or "",
+                vod_offset=c.get("vod_offset"),
             )
             for c in self._get("/clips", params)["data"]
         ]

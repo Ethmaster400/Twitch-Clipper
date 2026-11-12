@@ -48,12 +48,23 @@ def find_candidates(cfg: Config, tw: twitch.Twitch, db: DB, platforms: list[str]
                 continue
             pool.append(clip)
 
+    # Viewers often clip the same moment several times: keep only the best-ranked clip of
+    # each moment, and never one whose moment was already posted on an earlier run.
+    window = sel.get("same_moment_window_s", 90)
+    for clip in pool:
+        db.remember_moment(clip)
+    taken = db.posted_clips() if window else []
     found = []
     for score, clip in ranking.rank(pool, cfg.section("ranking")):
+        twin = next((t for t in taken if ranking.same_moment(clip, t, window)), None) if window else None
+        if twin is not None:
+            log.info("Skipping %r: same moment as %r", clip.title, twin.title)
+            continue
         todo = [p for p in platforms if db.needs_post(clip.id, p)]
         if todo:
             log.debug("Candidate %.3f %s %r", score, clip.streamer, clip.title)
             found.append((clip, todo))
+        taken.append(clip)
     return found[: sel.get("max_posts_per_run", 3)]
 
 
