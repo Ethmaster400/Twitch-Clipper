@@ -133,8 +133,10 @@ def main(argv: list[str] | None = None) -> None:
 
         from .db import DB
         from .uploaders import uploadpost
-        rows = [r for r in DB(cfg.data_dir / "claud.db").history(200)
-                if r["platform"] == "uploadpost"][: args.last]
+        from . import budget
+        db = DB(cfg.data_dir / "claud.db")
+        print(budget.summary(db, cfg.platform("uploadpost")))
+        rows = [r for r in db.history(200) if r["platform"] == "uploadpost"][: args.last]
         if not rows:
             print("No Upload-Post uploads recorded yet (check `claud history`).")
         for row in rows:

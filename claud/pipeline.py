@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import captions, content_filter, hooks, metadata, ranking, render, streamtype, twitch
+from . import budget, captions, content_filter, hooks, metadata, ranking, render, streamtype, twitch
 from .config import Config, Streamer, env
 from .render import Rect
 from .db import DB
@@ -200,7 +200,17 @@ def run(cfg: Config, *, dry_run: bool = False) -> None:
     candidates = find_candidates(cfg, tw, db, platforms)
     log.info("%d clip(s) to post", len(candidates))
 
+    ucfg = cfg.platform("uploadpost")
     for clip, todo in candidates:
+        if "uploadpost" in todo and not dry_run:
+            used_month, used_today = budget.usage(db, ucfg)
+            left = budget.minutes_left_today(ucfg, used_month, used_today)
+            if budget.clip_minutes(clip.duration, ucfg) > left:
+                log.info("Upload-Post minutes budget: %.1f min left for today, not enough for %r (%.0fs); "
+                         "it'll be posted on a later run", left, clip.title, clip.duration)
+                todo = [p for p in todo if p != "uploadpost"]
+                if not todo:
+                    continue
         log.info("[%s] %r (%d views) -> %s", clip.streamer, clip.title, clip.views, ", ".join(todo))
         db.upsert_clip(clip)
         streamer = streamers.get(clip.streamer.lower())

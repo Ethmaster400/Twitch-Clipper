@@ -96,6 +96,9 @@ platforms:
     tiktok_privacy: PUBLIC_TO_EVERYONE
     youtube_privacy: public   # public / unlisted / private
     youtube_category_id: "20" # 20 = Gaming
+    monthly_minutes: 300      # your plan's video minutes per month; leave empty for no limit
+    count_each_platform: true # a 40 s clip to TikTok + YouTube counts as 80 s (the safe assumption)
+    pace_evenly: true         # spread the minutes over the month instead of using them up early
   manual:
     enabled: false            # true = copy each new video + a caption .txt into `folder`, to upload yourself
     folder: data/ready

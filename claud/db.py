@@ -30,7 +30,7 @@ MAX_ATTEMPTS = 3
 
 # Where in the stream each clip is, for same-moment checks. Added after the first release,
 # so they're added to existing databases on open.
-MOMENT_COLUMNS = {"clip_created_at": "TEXT", "video_id": "TEXT", "vod_offset": "INTEGER"}
+MOMENT_COLUMNS = {"clip_created_at": "TEXT", "video_id": "TEXT", "vod_offset": "INTEGER", "duration": "REAL"}
 
 
 class DB:
@@ -46,21 +46,21 @@ class DB:
 
     def upsert_clip(self, clip) -> None:
         self.conn.execute(
-            "INSERT INTO clips (id, streamer, title, url, views, clip_created_at, video_id, vod_offset) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO clips (id, streamer, title, url, views, clip_created_at, video_id, vod_offset, duration) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET views = excluded.views, "
             "clip_created_at = excluded.clip_created_at, video_id = excluded.video_id, "
-            "vod_offset = excluded.vod_offset",
+            "vod_offset = excluded.vod_offset, duration = excluded.duration",
             (clip.id, clip.streamer, clip.title, clip.url, clip.views,
-             clip.created_at, clip.video_id, clip.vod_offset),
+             clip.created_at, clip.video_id, clip.vod_offset, clip.duration),
         )
         self.conn.commit()
 
     def remember_moment(self, clip) -> None:
         """Fill in where a clip we already know about sits in the stream (older rows lack it)."""
         self.conn.execute(
-            "UPDATE clips SET clip_created_at = ?, video_id = ?, vod_offset = ? WHERE id = ?",
-            (clip.created_at, clip.video_id, clip.vod_offset, clip.id),
+            "UPDATE clips SET clip_created_at = ?, video_id = ?, vod_offset = ?, duration = ? WHERE id = ?",
+            (clip.created_at, clip.video_id, clip.vod_offset, clip.duration, clip.id),
         )
         self.conn.commit()
 
@@ -102,6 +102,18 @@ class DB:
             (clip_id, platform, status, remote_id, error),
         )
         self.conn.commit()
+
+    def seconds_posted(self, platform: str) -> tuple[float, float]:
+        """Total length (seconds) of clips posted to `platform` this month and today (UTC)."""
+        row = self.conn.execute(
+            "SELECT "
+            " COALESCE(SUM(CASE WHEN p.updated_at >= date('now', 'start of month') THEN c.duration END), 0),"
+            " COALESCE(SUM(CASE WHEN p.updated_at >= date('now') THEN c.duration END), 0) "
+            "FROM posts p JOIN clips c ON c.id = p.clip_id "
+            "WHERE p.platform = ? AND p.status = 'posted'",
+            (platform,),
+        ).fetchone()
+        return float(row[0]), float(row[1])
 
     def reset_failed(self) -> int:
         """Forget failed attempts so those clips are tried again; returns how many."""
