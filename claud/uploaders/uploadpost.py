@@ -92,3 +92,8 @@ def list_profiles() -> list[str]:
         else:
             names.append(str(user))
     return names
+
+
+def status(request_id: str) -> dict:
+    """What Upload-Post reports for one upload (per-platform results), as returned by its API."""
+    return client().get_status(request_id)

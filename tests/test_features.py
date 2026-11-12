@@ -464,3 +464,24 @@ def test_run_stops_early_on_placeholder_profile(tmp_path, monkeypatch):
         pipeline.check_settings(cfg, ["uploadpost"])
     cfg.raw["platforms"]["uploadpost"]["profile"] = "twitchclips"
     pipeline.check_settings(cfg, ["uploadpost"])   # real name: fine
+
+
+def test_status_command_prints_upload_post_results(tmp_path, monkeypatch, capsys):
+    from claud import cli
+    from claud.db import DB
+    from claud.uploaders import uploadpost
+
+    data = tmp_path / "data"
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(f"data_dir: {data}\nstreamers:\n  - {{login: caseoh_, permission: yes}}\n")
+    data.mkdir()
+    db = DB(data / "claud.db")
+    clip = Clip(id="c1", streamer="caseoh_", title="WTH", url="u", views=1, duration=10, game_id="1")
+    db.upsert_clip(clip)
+    db.record_post("c1", "uploadpost", remote_id="req_abc")
+    fake = SimpleNamespace(get_status=lambda rid: {"request_id": rid, "results": {"tiktok": "failed: not connected"}})
+    monkeypatch.setattr(uploadpost, "client", lambda: fake)
+
+    cli.main(["-c", str(cfg_file), "status"])
+    out = capsys.readouterr().out
+    assert "caseoh_: WTH" in out and "failed: not connected" in out

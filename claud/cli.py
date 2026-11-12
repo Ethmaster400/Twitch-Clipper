@@ -56,6 +56,8 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("history", help="Show recent posts")
     sub.add_parser("profiles", help="Check the Upload-Post API key and list your Upload-Post profiles")
+    p_status = sub.add_parser("status", help="Ask Upload-Post how recent uploads went on each platform")
+    p_status.add_argument("--last", type=int, default=5, help="How many recent uploads to check")
     sub.add_parser("retry", help="Clear failed attempts so those clips are tried again on the next run")
 
     args = parser.parse_args(argv)
@@ -126,6 +128,26 @@ def main(argv: list[str] | None = None) -> None:
         else:
             from .uploaders import tiktok
             tiktok.authorize(pcfg["token_file"])
+    elif args.cmd == "status":
+        import json as _json
+
+        from .db import DB
+        from .uploaders import uploadpost
+        rows = [r for r in DB(cfg.data_dir / "claud.db").history(200)
+                if r["platform"] == "uploadpost"][: args.last]
+        if not rows:
+            print("No Upload-Post uploads recorded yet (check `claud history`).")
+        for row in rows:
+            print(f"\n== {row['updated_at']}  {row['streamer']}: {row['title'][:50]}")
+            if row["status"] != "posted":
+                print(f"   Claud couldn't send it: {row['error']}")
+            elif not str(row["remote_id"]).startswith(("req", "job")) and len(str(row["remote_id"])) < 8:
+                print(f"   Sent, but Upload-Post gave no request ID ({row['remote_id']}); check the dashboard.")
+            else:
+                try:
+                    print(_json.dumps(uploadpost.status(row["remote_id"]), indent=2)[:2000])
+                except Exception as e:
+                    print(f"   Couldn't fetch status: {e}")
     elif args.cmd == "profiles":
         from .uploaders import uploadpost
         names = uploadpost.list_profiles()
