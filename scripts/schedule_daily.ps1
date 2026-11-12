@@ -21,12 +21,13 @@ if ($Remove) {
 }
 
 $Root = Split-Path -Parent $PSScriptRoot
-$Bat = Join-Path $Root "scripts\run_claud.bat"
+$Hidden = Join-Path $Root "scripts\run_hidden.vbs"
 if (-not (Test-Path (Join-Path $Root ".venv\Scripts\claud.exe"))) {
     throw "Claud is not installed in $Root\.venv - run the setup steps first."
 }
 
-$Action = New-ScheduledTaskAction -Execute $Bat -WorkingDirectory $Root
+# wscript runs run_claud.bat through run_hidden.vbs, so no console window pops up.
+$Action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$Hidden`"" -WorkingDirectory $Root
 $Triggers = @($At | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ })
 # Run late if the PC was off or asleep at the scheduled time; stop a run stuck for over 3 hours.
 $Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 3)
